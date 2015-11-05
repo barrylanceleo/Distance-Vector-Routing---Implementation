@@ -1,0 +1,41 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "Server.h"
+
+void printUsage()
+{
+    printf("Usage: <filename> -t <topology-file-name> -i <routing-update-interval>");
+}
+
+int main(int argc, char **args)
+{
+    if(argc == 5)
+    {
+        char *topology_file_name = args[2];
+        int routing_update_interval = atoi(args[4]);
+        //atoi(nptr) is same as strtol(nptr, NULL, 10);
+        if(routing_update_interval == 0)
+        {
+            printf("Invalid routing update interval provided.\n");
+            printUsage();
+            printf("\n");
+        }
+
+        runServer(topology_file_name, routing_update_interval);
+    }
+    else if(argc == 0)
+    {
+        printf("Topology file and routing update interval not specified during start up.\n");
+        printUsage();
+        printf("\n");
+    }
+    else{
+        printf("Invalid command line arguments.\n");
+        printUsage();
+        printf("\n");
+    }
+
+    return 1;
+}
+
+
