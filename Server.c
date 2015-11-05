@@ -5,9 +5,17 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "Server.h"
 #include "main.h"
 #include "list.h"
+#include "SocketUtils.h"
+
+char *myHostName;
+char *myIPAddress;
+int myPort;
+int myId;
+list *nodesList = NULL;
 
 char *readLine(FILE **fp)
 {
@@ -105,6 +113,15 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
                     return -2; //error in topology file
                 }
 
+                //find my own entry and handle it accordingly
+                if(strcmp(myIPAddress, ipAddress) == 0)
+                {
+                    cost = 0;
+                    //initialize global variables
+                    myId = id;
+                    myPort = port;
+                }
+
                 //create a node
                 node *newNode = (node *)malloc(sizeof(node));
                 newNode->id = id;
@@ -165,15 +182,23 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
 
 int runServer(char *topology_file_name, int routing_update_interval)
 {
+    //initialize the globale parameters
+    myHostName = (char *) malloc(sizeof(char) * HOST_NAME_SIZE);
+    gethostname(myHostName, HOST_NAME_SIZE);
+    myIPAddress = getIpfromHostname(myHostName);
 
-    //create the nodes list
-    list *nodesList = NULL;
-
+    //read the topology file and initialize the nodeslist
     int status = readTopologyFile(topology_file_name, &nodesList);
+    printf("%d %s %s %d\n", myId, myHostName, myIPAddress, myPort);
     printList(nodesList);
     if(status == -1)
     {
         printf("Topology File not found.\n");
+        return -1;//error in topology file
+    }
+    else if(status == -2)
+    {
+        printf("Error in topology file format.\n");
         return -1;//error in topology file
     }
     return 0;
