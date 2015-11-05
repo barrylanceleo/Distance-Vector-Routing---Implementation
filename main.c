@@ -21,7 +21,17 @@ int main(int argc, char **args)
             printf("\n");
         }
 
-        runServer(topology_file_name, routing_update_interval);
+        int status = runServer(topology_file_name, routing_update_interval);
+        if(status == -1)
+        {
+            printf("Probably Internet Failure. Terminating...\n");
+            return -1;
+        }
+        else if(status == -2)
+        {
+            printf("Error in topology file. Terminating...\n");
+            return -1;
+        }
     }
     else if(argc == 0)
     {

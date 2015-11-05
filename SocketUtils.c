@@ -76,7 +76,6 @@ struct addrinfo *getAddressInfo(char *hostName, int port) {
     }
     if (result != 0 || host_info_list == NULL) {
         fprintf(stderr, "Error Getting AddressInfo: %s\n", gai_strerror(result));
-        printf("Unable to get the AddressInfo. Please check the hostname/ipAddress provided.\n");
         return NULL;
     }
 

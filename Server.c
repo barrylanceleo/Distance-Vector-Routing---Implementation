@@ -54,6 +54,7 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
     FILE *tf = fopen(topology_file_name, "r");
     if(tf == NULL)
     {
+        fprintf(stderr,"Unable to open topology file.\n");
         return -1; //unable to open topology file
     }
     else
@@ -176,7 +177,7 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
 
         fclose(tf);
 
-        return 1;
+        return 0;
     }
 }
 
@@ -186,20 +187,28 @@ int runServer(char *topology_file_name, int routing_update_interval)
     myHostName = (char *) malloc(sizeof(char) * HOST_NAME_SIZE);
     gethostname(myHostName, HOST_NAME_SIZE);
     myIPAddress = getIpfromHostname(myHostName);
+    if(myIPAddress == NULL)
+    {
+        myIPAddress = 'invalid';
+        fprintf(stderr,"Unable to get Ip Address of server.\n");
+        return -1; //probably internet failure
+    }
 
     //read the topology file and initialize the nodeslist
     int status = readTopologyFile(topology_file_name, &nodesList);
-    printf("%d %s %s %d\n", myId, myHostName, myIPAddress, myPort);
-    printList(nodesList);
     if(status == -1)
     {
         printf("Topology File not found.\n");
-        return -1;//error in topology file
+        return -2;//error in topology file
     }
     else if(status == -2)
     {
         printf("Error in topology file format.\n");
-        return -1;//error in topology file
+        return -2;//error in topology file
     }
+
+    printf("%d %s %s %d\n", myId, myHostName, myIPAddress, myPort);
+    printList(nodesList);
+
     return 0;
 }
