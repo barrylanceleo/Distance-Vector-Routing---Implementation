@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -43,7 +44,7 @@ char *getHostnameFromIp(char *ipAddress) {
     char hostName[HOST_NAME_SIZE];
     int result = getnameinfo((struct sockaddr *) &sa, sizeof(sa), hostName, sizeof(hostName), NULL, 0, 0);
     if (result != 0) {
-        fprintf(stderr, "Error in getting hostname from IpAddress%s\n", gai_strerror(result));
+        fprintf(stderr, "Error in getting hostname from IpAddress%s\n", strerror(errno));
         return NULL;
     }
     return strdup(hostName);
@@ -75,7 +76,7 @@ struct addrinfo *getAddressInfo(char *hostName, int port) {
         result = getaddrinfo(hostName, portString, &hints, &host_info_list);
     }
     if (result != 0 || host_info_list == NULL) {
-        fprintf(stderr, "Error Getting AddressInfo: %s\n", gai_strerror(result));
+        fprintf(stderr, "Error Getting AddressInfo: %s\n", strerror(errno));
         return NULL;
     }
 

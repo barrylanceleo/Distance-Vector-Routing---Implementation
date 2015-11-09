@@ -6,6 +6,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <errno.h>
+#include <sys/timerfd.h>
 #include "Server.h"
 #include "main.h"
 #include "list.h"
@@ -15,6 +19,7 @@ char *myHostName;
 char *myIPAddress;
 int myPort;
 int myId;
+int mySockFD;
 list *nodesList = NULL;
 
 char *readLine(FILE **fp)
@@ -181,6 +186,65 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
     }
 }
 
+int startServer(int port) {
+
+    struct addrinfo *serverAddressInfo = getAddressInfo("localhost", port); //as server needs to be started on localhost
+
+    if (serverAddressInfo == NULL){
+        fprintf(stderr, "Couldn't get addrinfo for the host port %d\n", port);
+        return -1;
+    }
+
+    int listernerSockfd;
+
+    if ((listernerSockfd = socket(serverAddressInfo->ai_family, serverAddressInfo->ai_socktype,
+                                  serverAddressInfo->ai_protocol)) == -1) {
+        fprintf(stderr, "Error Creating socket: %d %s\n", listernerSockfd, strerror(errno));
+        return -1;
+    } else {
+        printf("Created Socket.\n");
+    }
+
+    int bindStatus;
+
+    if ((bindStatus = bind(listernerSockfd, serverAddressInfo->ai_addr, serverAddressInfo->ai_addrlen)) == -1) {
+        fprintf(stderr, "Error binding %d %s\n", bindStatus, strerror(errno));
+        return -1;
+    } else {
+        printf("Done binding socket to port %d.\n", port);
+    }
+
+    freeaddrinfo(serverAddressInfo);
+    return listernerSockfd;
+}
+
+
+int broadcastToAllNodes(list *NodesList, char *msg, int messageLength) {
+    struct listItem *currentItem = NodesList;
+    if (currentItem == NULL) {
+        printf("There are no nodes in list to broadcast\n");
+        return -1;
+    }
+    else {
+        do {
+            node *currentNode = (struct node *) currentItem->item;
+            struct addrinfo *serverAddressInfo = getAddressInfo(currentNode->ipAddress, currentNode->port);
+            int bytes_sent = sendto(mySockFD, msg, messageLength * sizeof(char), 0,
+                                    serverAddressInfo->ai_addr, sizeof(struct sockaddr_storage));
+            if(bytes_sent == -1)
+            {
+                fprintf(stderr, "Error sending data: %s.\n", strerror(errno));
+                return -1;
+            }
+            else{
+                printf("Send data of %d bytes.\n", bytes_sent);
+            }
+            currentItem = currentItem->next;
+        } while (currentItem != NULL);
+    }
+    return 0;
+}
+
 int runServer(char *topology_file_name, int routing_update_interval)
 {
     //initialize the globale parameters
@@ -209,6 +273,121 @@ int runServer(char *topology_file_name, int routing_update_interval)
 
     printf("%d %s %s %d\n", myId, myHostName, myIPAddress, myPort);
     printList(nodesList);
+
+    mySockFD = startServer(myPort);
+    if(mySockFD == -1)
+    {
+        //fprintf("Error in creating socket.\n");
+        return -3;
+    }
+
+    fd_set masterFDList, tempFDList; //Master file descriptor list to add all sockets and stdin
+    int fdmax; //to hold the max file descriptor value
+    FD_ZERO(&masterFDList); // clear the master and temp sets
+    FD_ZERO(&tempFDList);
+    FD_SET(STDIN, &masterFDList); // add STDIN to master FD list
+    fdmax = STDIN;
+
+    FD_SET(mySockFD, &masterFDList); //add the listener to master FD list and update fdmax
+    if (mySockFD > fdmax)
+        fdmax = mySockFD;
+
+    //create a timerFD for routing updates
+    int timerFD = timerfd_create(CLOCK_REALTIME, 0);
+    if (timerFD == -1)
+        fprintf(stderr, "Error creating timer: %s.\n", strerror(errno));
+
+    struct itimerspec time_value;
+    time_value.it_value.tv_sec = 5; //initial time
+    time_value.it_value.tv_nsec = 0;
+    time_value.it_interval.tv_sec = routing_update_interval; //interval time
+    time_value.it_interval.tv_nsec = 0;
+    if (timerfd_settime(timerFD, 0, &time_value, NULL) == -1)
+        fprintf(stderr, "Error setting time in timer: %s.\n", strerror(errno));
+
+    FD_SET(timerFD, &masterFDList); //add the timer to master FD list and update fdmax
+    if (timerFD > fdmax)
+        fdmax = timerFD;
+
+
+    while (1) //keep waiting for input and data
+    {
+        printf("$");
+        fflush(stdout); //print the terminal symbol
+        tempFDList = masterFDList; //make a copy of masterFDList and use it as select() modifies the list
+
+        //int select(int numfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
+        if (select(fdmax + 1, &tempFDList, NULL, NULL, NULL) ==
+            -1) //select waits till it gets data in an fd in the list
+        {
+            fprintf(stderr, "Error in select\n");
+            return -1;
+        }
+        // an FD has data so iterate through the list to find the fd with data
+        int fd;
+        for (fd = 0; fd <= fdmax; fd++) {
+            if (FD_ISSET(fd, &tempFDList)) //found a FD with data
+            {
+                if (fd == STDIN) //data from commandLine(STDIN)
+                {
+                    size_t commandLength = 50;
+                    char *command = (char *) malloc(commandLength);
+                    getline(&command, &commandLength, stdin); //get line the variable if space is not sufficient
+//                    if (stringEquals(command, "\n")) //to handle the stray \n s
+//                        continue;
+//                    //printf("--Got data: %s--\n",command);
+//                    handleCommands(command, "SERVER");
+                }
+                else if (fd == mySockFD) //message from a host
+                {
+
+                    char buffer[10];
+                    struct sockaddr_storage addr;
+                    int fromlen = sizeof(addr);
+                    int bytes_received = recvfrom(mySockFD, buffer, 10, 0, &addr, &fromlen);
+                    buffer[bytes_received] = '\0';
+                    if(bytes_received == -1)
+                    {
+                        fprintf(stderr, "Error reading: %s.\n", strerror(errno));
+                    }
+                    else if(bytes_received == 0)
+                    {
+                        printf(" Recevied a 0 byte.\n");
+                    }
+                    else
+                    {
+                        printf(" Recevied: %s.\n", buffer);
+                    }
+
+                }
+                else if (fd == timerFD) //message from a host
+                {
+
+                    //read the timer
+                    uint64_t timers_expired;
+                    int bytes_read = read(timerFD, &timers_expired, sizeof(uint64_t));
+                    if(bytes_read == -1)
+                    {
+                        fprintf(stderr, "Timer expired but error in reading: %s.\n", strerror(errno));
+                    }
+                    else{
+                        printf("Timer expired: %lu.\n", timers_expired);
+                    }
+
+                    //send routing message to all hosts
+                    if((status = broadcastToAllNodes(nodesList, "Hello", 5))== -1)
+                    {
+                        return -4;
+                    }
+                }
+                else // handle other data
+                {
+                    printf("Received data from fd: %d but not sure who it is.\n", fd);
+
+                }
+            }
+        }
+    }
 
     return 0;
 }
