@@ -99,6 +99,14 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
             return -2; //error in topology file
         }
 
+        //read the portnumber and id
+        topologyline = readLine(&tf);
+        int port = atoi(topologyline);
+        myPort = port;
+        topologyline = readLine(&tf);
+        int id = atoi(topologyline);
+        myId = id;
+
         //read the nodes' ips/ports and build add to the list
         int i;
         for(i=0; i < num_servers; i++)
@@ -122,10 +130,18 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
                 //find my own entry and handle it accordingly
                 if(strcmp(myIPAddress, ipAddress) == 0)
                 {
-                    cost = 0;
-                    //initialize global variables
-                    myId = id;
-                    myPort = port;
+
+                    //changes to make all nodes run on a single machine
+//                    cost = 0;
+//                    //initialize global variables
+//                    myId = id;
+//                    myPort = port;
+
+                    if(id == myId && port == myPort)
+                    {
+                        cost = 0;
+                    }
+                                        
                 }
 
                 //create a node
