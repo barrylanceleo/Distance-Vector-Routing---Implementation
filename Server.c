@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <sys/timerfd.h>
+#include <arpa/inet.h>
 #include "Server.h"
 #include "main.h"
 #include "list.h"
@@ -141,7 +142,7 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
                     {
                         cost = 0;
                     }
-                                        
+
                 }
 
                 //create a node
@@ -253,7 +254,7 @@ int broadcastToAllNodes(list *NodesList, char *msg, int messageLength) {
                 return -1;
             }
             else{
-                printf("Send data of %d bytes.\n", bytes_sent);
+                printf("Sent data of %d bytes.\n", bytes_sent);
             }
             currentItem = currentItem->next;
         } while (currentItem != NULL);
@@ -269,7 +270,7 @@ int runServer(char *topology_file_name, int routing_update_interval)
     myIPAddress = getIpfromHostname(myHostName);
     if(myIPAddress == NULL)
     {
-        myIPAddress = 'invalid';
+        myIPAddress = "invalid";
         fprintf(stderr,"Unable to get Ip Address of server.\n");
         return -1; //probably internet failure
     }
@@ -359,20 +360,34 @@ int runServer(char *topology_file_name, int routing_update_interval)
 
                     char buffer[10];
                     struct sockaddr_storage addr;
-                    int fromlen = sizeof(addr);
+                    socklen_t fromlen = sizeof(addr);
                     int bytes_received = recvfrom(mySockFD, buffer, 10, 0, &addr, &fromlen);
                     buffer[bytes_received] = '\0';
                     if(bytes_received == -1)
                     {
                         fprintf(stderr, "Error reading: %s.\n", strerror(errno));
                     }
-                    else if(bytes_received == 0)
+
+                    //get the portnum and ipaddress from receiver
+                    char fromIP[INET_ADDRSTRLEN];
+                    struct sockaddr_in *fromAddr = ((struct sockaddr_in *)&addr);
+                    char *returned_ptr = inet_ntop(fromAddr->sin_family, &(fromAddr->sin_addr),
+                                                   fromIP, sizeof(fromIP));
+                    int fromPort = ntohs(fromAddr->sin_port);
+                    if(returned_ptr == NULL || fromPort == -1)
                     {
-                        printf(" Recevied a 0 byte.\n");
+                        fprintf(stderr, "Error getting IP address and port from receiver: "
+                                "%s.\n", strerror(errno));
+                    }
+
+
+                    if(bytes_received == 0)
+                    {
+                        printf(" Recevied a 0 byte from %s %d.\n", fromIP, fromPort);
                     }
                     else
                     {
-                        printf(" Recevied: %s.\n", buffer);
+                        printf(" Recevied: %s from %s %d.\n", buffer, fromIP, fromPort);
                     }
 
                 }
@@ -391,7 +406,7 @@ int runServer(char *topology_file_name, int routing_update_interval)
                     }
 
                     //send routing message to all hosts
-                    if((status = broadcastToAllNodes(nodesList, "Hello", 5))== -1)
+                    if(broadcastToAllNodes(nodesList, "Hello", 5) == -1)
                     {
                         return -4;
                     }

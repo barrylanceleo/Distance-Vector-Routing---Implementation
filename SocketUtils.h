@@ -7,4 +7,6 @@
 char *getIpfromHostname(char *hostName);
 struct addrinfo *getAddressInfo(char *hostName, int port);
 
+
+
 #endif //DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_SOCKETUTILS_H

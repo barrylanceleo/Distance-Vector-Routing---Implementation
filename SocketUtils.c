@@ -15,24 +15,6 @@
 #include <netdb.h>
 
 
-char *getIPAddress(struct sockaddr *address) {
-    if (address == NULL) {
-        return NULL;
-    }
-
-    char *IPAddress = (char *) malloc(sizeof(char)*INET_ADDRSTRLEN);
-    struct sockaddr_in *IPstruct = (struct sockaddr_in *) address;
-    inet_ntop(IPstruct->sin_family, &(IPstruct->sin_addr), IPAddress, INET_ADDRSTRLEN);
-
-    return IPAddress;
-}
-
-int getPort(struct sockaddr *address) {
-    int port;
-    struct sockaddr_in *ipAddress = (struct sockaddr_in *) address;
-    port = ntohs(ipAddress->sin_port);
-    return port;
-}
 
 char *getHostnameFromIp(char *ipAddress) {
     if (ipAddress == NULL) {
@@ -54,8 +36,16 @@ char *getIpfromHostname(char *hostName) {
     struct addrinfo *sockAddress = getAddressInfo(hostName, NULL);
     if (sockAddress == NULL)
         return NULL;
-    char *ipAddress = getIPAddress(sockAddress->ai_addr);
-    return ipAddress;
+
+    char IPAddress[INET_ADDRSTRLEN];
+    struct sockaddr_in *address = (struct sockaddr_in *)sockAddress->ai_addr;
+    char *returned_ptr = inet_ntop(address->sin_family, &(address->sin_addr), IPAddress, sizeof(IPAddress));
+    if(returned_ptr == NULL)
+    {
+        return NULL;
+    }
+    else
+        return strdup(IPAddress);
 }
 
 struct addrinfo *getAddressInfo(char *hostName, int port) {
