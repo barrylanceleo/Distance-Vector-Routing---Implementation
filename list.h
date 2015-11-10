@@ -10,7 +10,7 @@ typedef struct listItem {
 }listItem, list;
 
 int addItem(list **listInstance, void *item);
-int printList(list *listInstance);
+int printList(list *listInstance, char * listType);
 void *findNodeByID(list *listInstance, int id);
 
 

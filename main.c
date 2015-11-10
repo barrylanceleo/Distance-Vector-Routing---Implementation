@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "Server.h"
+#include "main.h"
 
 void printUsage()
 {
@@ -9,12 +10,23 @@ void printUsage()
 
 int main(int argc, char **args)
 {
+    //create a context variable and initialize it
+    context nodeContext;
+    nodeContext.routing_update_interval = 0;
+    nodeContext.myHostName = NULL;
+    nodeContext.myIPAddress = NULL;
+    nodeContext.myPort = NULL;
+    nodeContext.myId = NULL;
+    nodeContext.mySockFD = NULL;
+    nodeContext.nodesList = NULL;
+    nodeContext.neighbourList = NULL;
+
     if(argc == 5)
     {
         char *topology_file_name = args[2];
-        int routing_update_interval = atoi(args[4]);
+        nodeContext.routing_update_interval = atoi(args[4]);
         //atoi(nptr) is same as strtol(nptr, NULL, 10);
-        if(routing_update_interval == 0)
+        if(nodeContext.routing_update_interval == 0)
         {
             printf("Invalid routing update interval provided.\n");
             printUsage();
@@ -22,7 +34,7 @@ int main(int argc, char **args)
         }
 
         int status ;
-        if((runServer(topology_file_name, routing_update_interval) !=0))
+        if((runServer(topology_file_name, &nodeContext) !=0))
         {
             if(status == -1)
             {

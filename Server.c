@@ -12,16 +12,7 @@
 #include <sys/timerfd.h>
 #include <arpa/inet.h>
 #include "Server.h"
-#include "main.h"
-#include "list.h"
 #include "SocketUtils.h"
-
-char *myHostName;
-char *myIPAddress;
-int myPort;
-int myId;
-int mySockFD;
-list *nodesList = NULL;
 
 char *readLine(FILE **fp)
 {
@@ -53,7 +44,7 @@ char *readLine(FILE **fp)
     }
 }
 
-int readTopologyFile(char *topology_file_name, list **nodesList)
+int readTopologyFile(char *topology_file_name, context *nodeContext)
 {
     int num_servers;
     int num_neighbors;
@@ -103,10 +94,10 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
         //read the portnumber and id
         topologyline = readLine(&tf);
         int port = atoi(topologyline);
-        myPort = port;
+        nodeContext->myPort = port;
         topologyline = readLine(&tf);
         int id = atoi(topologyline);
-        myId = id;
+        nodeContext->myId = id;
 
         //read the nodes' ips/ports and build add to the list
         int i;
@@ -129,16 +120,16 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
                 }
 
                 //find my own entry and handle it accordingly
-                if(strcmp(myIPAddress, ipAddress) == 0)
+                if(strcmp(nodeContext->myIPAddress, ipAddress) == 0)
                 {
 
                     //changes to make all nodes run on a single machine
 //                    cost = 0;
-//                    //initialize global variables
-//                    myId = id;
-//                    myPort = port;
+//                    //initialize the context variables
+//                    nodeContext.myId = id;
+//                    nodeContext.myPort = port;
 
-                    if(id == myId && port == myPort)
+                    if(id == nodeContext->myId && port == nodeContext->myPort)
                     {
                         cost = 0;
                     }
@@ -153,7 +144,7 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
                 newNode->cost = cost;
 
                 //add node to the list
-                addItem(nodesList, newNode);
+                addItem(&(nodeContext->nodesList), newNode);
                 //printf("%d %s %d %d\n", newNode->id, newNode->ipAddress, newNode->port, newNode->cost);
             }
             else
@@ -164,7 +155,7 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
 
         }
 
-        //read the cost of neighbours and update the list
+        //read the cost of neighbours,update the cost in nodesList and create a neighbourList
         for(i=0; i < num_neighbors; i++)
         {
             topologyline = readLine(&tf);
@@ -183,9 +174,30 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
                     return -2; //error in topology file
                 }
 
-                //update the cost in the list
-                node *neighbourNode = (node *)findNodeByID(*nodesList, neighbourId);
+                //update the cost in the NodesList
+                node *neighbourNode = (node *)findNodeByID(nodeContext->nodesList, neighbourId);
                 neighbourNode->cost = cost;
+
+                //create a timeoutFD for the neighbour routing update timeout
+                int timeoutFD = timerfd_create(CLOCK_REALTIME, 0);
+                if (timeoutFD == -1)
+                    fprintf(stderr, "Error creating timer: %s.\n", strerror(errno));
+
+                struct itimerspec time_value;
+                time_value.it_value.tv_sec = nodeContext->routing_update_interval*3; //initial time
+                time_value.it_value.tv_nsec = 0;
+                time_value.it_interval.tv_sec = nodeContext->routing_update_interval*3; //interval time
+                time_value.it_interval.tv_nsec = 0;
+                if (timerfd_settime(timeoutFD, 0, &time_value, NULL) == -1)
+                    fprintf(stderr, "Error setting time in timer: %s.\n", strerror(errno));
+
+                //create a neighbour
+                neighbour *newNeighbour = (neighbour *)malloc(sizeof(neighbour));
+                newNeighbour->id = neighbourId;
+                newNeighbour->timeoutFD = timeoutFD;
+
+                //add node to the list
+                addItem(&(nodeContext->neighbourList), newNeighbour);
             }
             else
             {
@@ -194,8 +206,9 @@ int readTopologyFile(char *topology_file_name, list **nodesList)
             }
         }
 
-        //print the nodes
-        //printList(nodesList);
+        //print the nodes and neighbours
+//        printList(nodeContext->nodesList, "node");
+//        printList(nodeContext->neighbourList, "neighbour");
 
         fclose(tf);
 
@@ -236,17 +249,20 @@ int startServer(int port) {
 }
 
 
-int broadcastToAllNodes(list *NodesList, char *msg, int messageLength) {
-    struct listItem *currentItem = NodesList;
+int broadcastToNeighbours(context *nodeContext, char *msg, int messageLength) {
+    struct listItem *currentItem = nodeContext->neighbourList;
     if (currentItem == NULL) {
-        printf("There are no nodes in list to broadcast\n");
+        printf("There are no neighbours in list to broadcast\n");
         return -1;
     }
     else {
+        char *ipAddress;
+        char *port;
         do {
-            node *currentNode = (struct node *) currentItem->item;
+            neighbour *currentNeighbour = (neighbour *) currentItem->item;
+            node *currentNode =(node *)findNodeByID(nodeContext->nodesList, currentNeighbour->id);
             struct addrinfo *serverAddressInfo = getAddressInfo(currentNode->ipAddress, currentNode->port);
-            int bytes_sent = sendto(mySockFD, msg, messageLength * sizeof(char), 0,
+            int bytes_sent = sendto(nodeContext->mySockFD, msg, messageLength * sizeof(char), 0,
                                     serverAddressInfo->ai_addr, sizeof(struct sockaddr_storage));
             if(bytes_sent == -1)
             {
@@ -262,21 +278,77 @@ int broadcastToAllNodes(list *NodesList, char *msg, int messageLength) {
     return 0;
 }
 
-int runServer(char *topology_file_name, int routing_update_interval)
-{
-    //initialize the globale parameters
-    myHostName = (char *) malloc(sizeof(char) * HOST_NAME_SIZE);
-    gethostname(myHostName, HOST_NAME_SIZE);
-    myIPAddress = getIpfromHostname(myHostName);
-    if(myIPAddress == NULL)
+int handleCommands(char *command) {
+    //remove the last \n in command if present
+    if (command[strlen(command) - 1] == '\n')
+        command[strlen(command) - 1] = '\0';
+
+    //split the command into parts
+
+    //find the commandLength
+    char delimiter = ' ';
+    int i = 0, commandLength = 0;
+    while(command[i] != '\0')
     {
-        myIPAddress = "invalid";
+        if(command[i] != delimiter)
+        {
+            commandLength++;
+            //traverse till you find a delimiter
+            do{
+                i++;
+            }while(command[i] != delimiter && command[i] != '\0');
+        }
+        else{
+            i++;
+        }
+    }
+
+    //check if the command is empty
+    if(commandLength == 0)
+    {
+        return -1;
+    }
+    printf("commandLength: %d\n", commandLength);
+
+    //create the commandParts array and update it
+    char *commandParts[commandLength];
+    i = 0;
+    char *commandPart = strtok(command, " ");
+    commandParts[i] = commandPart;
+    i++;
+    while(commandPart != NULL )
+    {
+        commandPart = strtok(NULL, " ");
+        commandParts[i] = commandPart;
+        i++;
+    }
+
+    //print the commands
+    for(i = 0; i<commandLength; i++)
+    {
+        printf("-%s-\n", commandParts[i]);
+    }
+
+
+
+    return 0;
+}
+
+int runServer(char *topology_file_name, context *nodeContext)
+{
+    //initialize the context parameters
+    nodeContext->myHostName = (char *) malloc(sizeof(char) * HOST_NAME_SIZE);
+    gethostname(nodeContext->myHostName, HOST_NAME_SIZE);
+    nodeContext->myIPAddress = getIpfromHostname(nodeContext->myHostName);
+    if(nodeContext->myIPAddress == NULL)
+    {
+        nodeContext->myIPAddress = "invalid";
         fprintf(stderr,"Unable to get Ip Address of server.\n");
         return -1; //probably internet failure
     }
 
     //read the topology file and initialize the nodeslist
-    int status = readTopologyFile(topology_file_name, &nodesList);
+    int status = readTopologyFile(topology_file_name, nodeContext);
     if(status == -1)
     {
         printf("Topology File not found.\n");
@@ -288,11 +360,11 @@ int runServer(char *topology_file_name, int routing_update_interval)
         return -2;//error in topology file
     }
 
-    printf("%d %s %s %d\n", myId, myHostName, myIPAddress, myPort);
-    printList(nodesList);
-
-    mySockFD = startServer(myPort);
-    if(mySockFD == -1)
+    printf("%d %s %s %d\n", nodeContext->myId, nodeContext->myHostName, nodeContext->myIPAddress, nodeContext->myPort);
+    printList(nodeContext->nodesList, "node");
+    printList(nodeContext->neighbourList, "neighbour");
+    nodeContext->mySockFD = startServer(nodeContext->myPort);
+    if(nodeContext->mySockFD == -1)
     {
         //fprintf("Error in creating socket.\n");
         return -3;
@@ -305,26 +377,26 @@ int runServer(char *topology_file_name, int routing_update_interval)
     FD_SET(STDIN, &masterFDList); // add STDIN to master FD list
     fdmax = STDIN;
 
-    FD_SET(mySockFD, &masterFDList); //add the listener to master FD list and update fdmax
-    if (mySockFD > fdmax)
-        fdmax = mySockFD;
+    FD_SET(nodeContext->mySockFD, &masterFDList); //add the listener to master FD list and update fdmax
+    if (nodeContext->mySockFD > fdmax)
+        fdmax = nodeContext->mySockFD;
 
-    //create a timerFD for routing updates
-    int timerFD = timerfd_create(CLOCK_REALTIME, 0);
-    if (timerFD == -1)
+    //create a routing_update_timerFD for routing updates
+    int routing_update_timerFD = timerfd_create(CLOCK_REALTIME, 0);
+    if (routing_update_timerFD == -1)
         fprintf(stderr, "Error creating timer: %s.\n", strerror(errno));
 
     struct itimerspec time_value;
-    time_value.it_value.tv_sec = 5; //initial time
+    time_value.it_value.tv_sec = 1; //initial time
     time_value.it_value.tv_nsec = 0;
-    time_value.it_interval.tv_sec = routing_update_interval; //interval time
+    time_value.it_interval.tv_sec = nodeContext->routing_update_interval; //interval time
     time_value.it_interval.tv_nsec = 0;
-    if (timerfd_settime(timerFD, 0, &time_value, NULL) == -1)
+    if (timerfd_settime(routing_update_timerFD, 0, &time_value, NULL) == -1)
         fprintf(stderr, "Error setting time in timer: %s.\n", strerror(errno));
 
-    FD_SET(timerFD, &masterFDList); //add the timer to master FD list and update fdmax
-    if (timerFD > fdmax)
-        fdmax = timerFD;
+    FD_SET(routing_update_timerFD, &masterFDList); //add the timer to master FD list and update fdmax
+    if (routing_update_timerFD > fdmax)
+        fdmax = routing_update_timerFD;
 
 
     while (1) //keep waiting for input and data
@@ -352,16 +424,21 @@ int runServer(char *topology_file_name, int routing_update_interval)
                     getline(&command, &commandLength, stdin); //get line the variable if space is not sufficient
 //                    if (stringEquals(command, "\n")) //to handle the stray \n s
 //                        continue;
-//                    //printf("--Got data: %s--\n",command);
-//                    handleCommands(command, "SERVER");
+                    if((status = handleCommands(command))!=0)
+                    {
+                        if(status == -1)
+                        {
+                            printf("Empty command.\n");
+                        }
+                    }
                 }
-                else if (fd == mySockFD) //message from a host
+                else if (fd == nodeContext->mySockFD) //message from a host
                 {
 
                     char buffer[10];
                     struct sockaddr_storage addr;
                     socklen_t fromlen = sizeof(addr);
-                    int bytes_received = recvfrom(mySockFD, buffer, 10, 0, &addr, &fromlen);
+                    int bytes_received = recvfrom(nodeContext->mySockFD, buffer, 10, 0, &addr, &fromlen);
                     buffer[bytes_received] = '\0';
                     if(bytes_received == -1)
                     {
@@ -391,12 +468,12 @@ int runServer(char *topology_file_name, int routing_update_interval)
                     }
 
                 }
-                else if (fd == timerFD) //message from a host
+                else if (fd == routing_update_timerFD) //message from a host
                 {
 
                     //read the timer
                     uint64_t timers_expired;
-                    int bytes_read = read(timerFD, &timers_expired, sizeof(uint64_t));
+                    int bytes_read = read(routing_update_timerFD, &timers_expired, sizeof(uint64_t));
                     if(bytes_read == -1)
                     {
                         fprintf(stderr, "Timer expired but error in reading: %s.\n", strerror(errno));
@@ -406,7 +483,7 @@ int runServer(char *topology_file_name, int routing_update_interval)
                     }
 
                     //send routing message to all hosts
-                    if(broadcastToAllNodes(nodesList, "Hello", 5) == -1)
+                    if(broadcastToNeighbours(nodeContext, "Hello", 5) == -1)
                     {
                         return -4;
                     }
@@ -419,6 +496,5 @@ int runServer(char *topology_file_name, int routing_update_interval)
             }
         }
     }
-
     return 0;
 }

@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "list.h"
 #include "Server.h"
 
@@ -39,20 +40,37 @@ int addItem(list **listInstance, void *item) {
     return 0;
 }
 
-int printList(list *listInstance) {
+int printList(list *listInstance, char * listType) {
     listItem *currentItem = listInstance;
     if (currentItem == NULL) {
         fprintf(stdout, "List is empty\n");
         return 0;
     }
     else {
-        do {
-            //specific to node struct
-            node *currentNode = (node *) currentItem->item;
-            printf("%d %s %d %d\n", currentNode->id, currentNode->ipAddress,
-                   currentNode->port, currentNode->cost);
-            currentItem = currentItem->next;
-        }while (currentItem != NULL);
+        if(strcmp(listType, "node") == 0)
+        {
+            do {
+                //specific to node struct
+                node *currentNode = (node *) currentItem->item;
+                printf("%d %s %d %d\n", currentNode->id, currentNode->ipAddress,
+                       currentNode->port, currentNode->cost);
+                currentItem = currentItem->next;
+            }while (currentItem != NULL);
+        }
+        else if(strcmp(listType, "neighbour") == 0)
+        {
+            do {
+                //specific to neighbour struct
+                neighbour *currentNeighbour = (neighbour *) currentItem->item;
+                printf("%d %d\n", currentNeighbour->id, currentNeighbour->timeoutFD);
+                currentItem = currentItem->next;
+            }while (currentItem != NULL);
+        }
+        else
+        {
+            fprintf(stderr, "Unknown listType give to printLis().\n");
+        }
+
     }
     return 0;
 }
