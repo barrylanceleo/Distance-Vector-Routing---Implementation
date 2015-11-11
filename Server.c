@@ -256,22 +256,26 @@ int broadcastToNeighbours(context *nodeContext, char *msg, int messageLength) {
         return -1;
     }
     else {
-        char *ipAddress;
-        char *port;
         do {
             neighbour *currentNeighbour = (neighbour *) currentItem->item;
             node *currentNode =(node *)findNodeByID(nodeContext->nodesList, currentNeighbour->id);
             struct addrinfo *serverAddressInfo = getAddressInfo(currentNode->ipAddress, currentNode->port);
-            int bytes_sent = sendto(nodeContext->mySockFD, msg, messageLength * sizeof(char), 0,
-                                    serverAddressInfo->ai_addr, sizeof(struct sockaddr_storage));
-            if(bytes_sent == -1)
-            {
-                fprintf(stderr, "Error sending data: %s.\n", strerror(errno));
-                return -1;
-            }
-            else{
-                printf("Sent data of %d bytes.\n", bytes_sent);
-            }
+
+            //keep resending untill all data is sent
+            int bytes_sent = 0;
+            do{
+                bytes_sent += sendto(nodeContext->mySockFD, (msg + bytes_sent) , (messageLength - bytes_sent) * sizeof(char), 0,
+                         serverAddressInfo->ai_addr, sizeof(struct sockaddr_storage));
+                if(bytes_sent == -1)
+                {
+                    fprintf(stderr, "Error sending data: %s.\n", strerror(errno));
+                    return -1;
+                }
+                else{
+                    printf("Sent data of %d bytes.\n", bytes_sent);
+                }
+            }while(bytes_sent != messageLength);
+
             currentItem = currentItem->next;
         } while (currentItem != NULL);
     }
@@ -328,11 +332,136 @@ int handleCommands(char *command) {
     {
         printf("-%s-\n", commandParts[i]);
     }
-
-
-
     return 0;
 }
+
+int buildRoutingPacket(context *nodeConText, char *routing_message, int *update_size)
+{
+    printf("Message size should be: %d bytes.\n", *update_size);
+
+    uint16_t num_of_update_fields = htons((uint16_t)getSize(nodeConText->nodesList));
+    uint16_t port = htons((uint16_t)nodeConText->myPort);
+    struct in_addr *ip =(struct in_addr *)malloc(sizeof(struct in_addr));
+    int status;
+    if((status= inet_pton(AF_INET, nodeConText->myIPAddress, ip)) !=1)
+    {
+        fprintf(stderr, "Error converting source ipAdress\n");
+        return -1;
+    }
+
+    //add these 3 to the message
+    int message_size = 0;
+    memcpy(routing_message, &num_of_update_fields, 2);
+    message_size = message_size + 2;
+    memcpy(routing_message+message_size, &port, 2);
+    message_size = message_size + 2;
+    memcpy(routing_message+message_size, ip, 4);
+    message_size = message_size + 4;
+
+    //add the neighbour info to the the message
+    listItem *currentItem = nodeConText->nodesList;
+    if (currentItem == NULL) {
+        fprintf(stderr, "No node to send routing packet\n");
+        return -1;
+    }
+    else {
+        uint16_t zero = htons((uint16_t)0);
+        uint16_t server_id;
+        uint16_t cost;
+        do {
+            node *currentNode = (node *) currentItem->item;
+
+            //parse the node
+            if((status= inet_pton(AF_INET, currentNode->ipAddress, ip)) !=1)
+            {
+                fprintf(stderr, "Error converting source ipAdress\n");
+                return -1;
+            }
+            port = htons((uint16_t)currentNode->port);
+            server_id = htons((uint16_t)currentNode->id);
+            cost = htons((uint16_t)currentNode->cost);
+
+            //copy node details to the message
+            memcpy(routing_message+message_size, ip, 4);
+            message_size = message_size + 4;
+            memcpy(routing_message+message_size, &port, 2);
+            message_size = message_size + 2;
+            memcpy(routing_message+message_size, &zero, 2);
+            message_size = message_size + 2;
+            memcpy(routing_message+message_size, &server_id, 2);
+            message_size = message_size + 2;
+            memcpy(routing_message+message_size, &cost, 2);
+            message_size = message_size + 2;
+
+            currentItem = currentItem->next;
+        } while (currentItem != NULL);
+    }
+
+    *update_size = message_size;
+    printf("Message size is: %d bytes.\n", *update_size);
+
+    return 0;
+
+}
+
+int readPacket(int fd, char *message, int messageLength)
+{
+
+    struct sockaddr_storage addr;
+    socklen_t fromlen = sizeof(addr);
+    int bytes_received = 0;
+    do{
+        bytes_received += recvfrom(fd, (message + bytes_received),
+                                   (messageLength - bytes_received), 0, &addr, &fromlen);
+        if(bytes_received == -1)
+        {
+            fprintf(stderr, "Error reading: %s.\n", strerror(errno));
+            return -1;
+        }
+        else
+        {
+            printf("Received %d bytes.\n", bytes_received);
+        }
+    }while(bytes_received != messageLength);
+    return 0;
+}
+
+int updateCosts(char *message, int messageLength)
+{
+    //just print it now
+    int parsed_size = 0;
+    struct in_addr read_ip;
+    uint16_t read_port, read_zero, read_id, read_cost;
+    char readIP[INET_ADDRSTRLEN];
+    char *returned_ptr;
+    while(parsed_size != messageLength)
+    {
+        memcpy(&read_ip, message+parsed_size, 4);
+        parsed_size += 4;
+        memcpy(&read_port, message+parsed_size, 2);
+        parsed_size += 2;
+        memcpy(&read_zero, message+parsed_size, 2);
+        parsed_size += 2;
+        memcpy(&read_id, message+parsed_size, 2);
+        parsed_size += 2;
+        memcpy(&read_cost, message+parsed_size, 2);
+        parsed_size += 2;
+        returned_ptr = inet_ntop(AF_INET, &read_ip, readIP, sizeof(readIP));
+        if(returned_ptr == NULL)
+        {
+            fprintf(stderr," unable to to get back the ipaddress");
+        }
+        read_port = ntohs(read_port);
+        read_zero = ntohs(read_zero);
+        read_id = ntohs(read_id);
+        read_cost = ntohs(read_cost);
+        printf("Node Info: %s %u %u %u %u\n", readIP, read_port, read_zero, read_id, read_cost);
+    }
+
+    return 0;
+
+}
+
 
 int runServer(char *topology_file_name, context *nodeContext)
 {
@@ -434,41 +563,55 @@ int runServer(char *topology_file_name, context *nodeContext)
                 }
                 else if (fd == nodeContext->mySockFD) //message from a host
                 {
-
-                    char buffer[10];
+                    //read a packet
+                    int messageLength = 8 + getSize(nodeContext->nodesList)*12;
+                    char message[messageLength];
                     struct sockaddr_storage addr;
                     socklen_t fromlen = sizeof(addr);
-                    int bytes_received = recvfrom(nodeContext->mySockFD, buffer, 10, 0, &addr, &fromlen);
-                    buffer[bytes_received] = '\0';
-                    if(bytes_received == -1)
+                    int bytes_received = 0;
+                    do{
+                        bytes_received += recvfrom(nodeContext->mySockFD, (message +bytes_received),
+                                                   (messageLength - bytes_received), 0, &addr, &fromlen);
+                        if(bytes_received == -1)
+                        {
+                            fprintf(stderr, "Error reading: %s.\n", strerror(errno));
+                        }
+                        else
+                        {
+                            printf("Received %d bytes.\n", bytes_received);
+                        }
+                    }while(bytes_received != messageLength);
+
+                    //read the num_fields_sent, source ip, port
+
+                    int parsed_size = 0;
+                    uint16_t read_num_of_update_fields, read_port;
+                    struct in_addr read_ip;
+                    memcpy(&read_num_of_update_fields, message +parsed_size, 2);
+                    parsed_size += 2;
+                    memcpy(&read_port, message +parsed_size, 2);
+                    parsed_size += 2;
+                    memcpy(&read_ip, message +parsed_size, 4);
+                    parsed_size += 4;
+                    read_num_of_update_fields = ntohs(read_num_of_update_fields);
+                    read_port = ntohs(read_port);
+                    char IPAddress[INET_ADDRSTRLEN];
+                    char *returned_ptr = inet_ntop(AF_INET, &read_ip, IPAddress, sizeof(IPAddress));
+                    if(returned_ptr == NULL)
                     {
-                        fprintf(stderr, "Error reading: %s.\n", strerror(errno));
+                    fprintf(stderr," unable to to get back the ipaddress");
                     }
 
-                    //get the portnum and ipaddress from receiver
-                    char fromIP[INET_ADDRSTRLEN];
-                    struct sockaddr_in *fromAddr = ((struct sockaddr_in *)&addr);
-                    char *returned_ptr = inet_ntop(fromAddr->sin_family, &(fromAddr->sin_addr),
-                                                   fromIP, sizeof(fromIP));
-                    int fromPort = ntohs(fromAddr->sin_port);
-                    if(returned_ptr == NULL || fromPort == -1)
-                    {
-                        fprintf(stderr, "Error getting IP address and port from receiver: "
-                                "%s.\n", strerror(errno));
-                    }
+                    printf("Received Routing update from : %s %u with %u entries.\n", IPAddress, read_port, read_num_of_update_fields);
 
-
-                    if(bytes_received == 0)
+                    //update Routing table
+                    if((status = updateCosts(message+8, messageLength-8))!=0)
                     {
-                        printf(" Recevied a 0 byte from %s %d.\n", fromIP, fromPort);
-                    }
-                    else
-                    {
-                        printf(" Recevied: %s from %s %d.\n", buffer, fromIP, fromPort);
+                        fprintf(stderr, "Error Updating cost.\n");
                     }
 
                 }
-                else if (fd == routing_update_timerFD) //message from a host
+                else if (fd == routing_update_timerFD) //time to send a routing update
                 {
 
                     //read the timer
@@ -482,11 +625,25 @@ int runServer(char *topology_file_name, context *nodeContext)
                         printf("Timer expired: %lu.\n", timers_expired);
                     }
 
-                    //send routing message to all hosts
-                    if(broadcastToNeighbours(nodeContext, "Hello", 5) == -1)
+                    //build the routing update
+                    //estimate the size of the update
+                    int num_nodes = getSize(nodeContext->nodesList);
+                    int update_size = 8 + 12*num_nodes;
+                    char update_message[update_size];
+                    int status =  buildRoutingPacket(nodeContext, update_message, &update_size);
+                    if(status != 0)
                     {
-                        return -4;
+                        fprintf(stderr, "Unable to create routing message\n");
                     }
+                    else
+                    {
+                        //send routing message to all hosts
+                        if(broadcastToNeighbours(nodeContext, update_message, update_size) == -1)
+                        {
+                            return -4;
+                        }
+                    }
+
                 }
                 else // handle other data
                 {

@@ -5,15 +5,16 @@
 #ifndef DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_SERVER_H
 #define DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_SERVER_H
 
+#include <stdint.h>
 #include "main.h"
 
 #define STDIN 0
 typedef struct node
 {
-    int id;
+    uint16_t id;
     char *ipAddress;
     int port;
-    int cost;
+    uint16_t cost;
 } node;
 
 

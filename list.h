@@ -12,7 +12,7 @@ typedef struct listItem {
 int addItem(list **listInstance, void *item);
 int printList(list *listInstance, char * listType);
 void *findNodeByID(list *listInstance, int id);
-
+int getSize(list *listInstance);
 
 #endif //DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_LIST_H
 

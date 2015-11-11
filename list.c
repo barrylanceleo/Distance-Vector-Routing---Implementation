@@ -92,3 +92,15 @@ void *findNodeByID(list *listInstance, int id) {
         return NULL;
     }
 }
+
+int getSize(list *listInstance)
+{
+    int size = 0;
+    listItem *currentItem = listInstance;
+    while (currentItem != NULL)
+    {
+        size++;
+        currentItem = currentItem->next;
+    }
+    return size;
+}
