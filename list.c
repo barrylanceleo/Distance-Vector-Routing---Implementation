@@ -13,7 +13,7 @@ int addItem(list **listInstance, void *item) {
     listItem *currentItem = *listInstance;
 
     if (item == NULL) {
-        fprintf(stderr, "node is NULL in addNode()\n");
+        fprintf(stderr, "routing_table_row is NULL in addNode()\n");
         return -1;
     }
 
@@ -47,13 +47,13 @@ int printList(list *listInstance, char * listType) {
         return 0;
     }
     else {
-        if(strcmp(listType, "node") == 0)
+        if(strcmp(listType, "routing_table_row") == 0)
         {
             do {
-                //specific to node struct
-                node *currentNode = (node *) currentItem->item;
-                printf("%d %s %d %d\n", currentNode->id, currentNode->ipAddress,
-                       currentNode->port, currentNode->cost);
+                //specific to routing_table_row struct
+                routing_table_row *currentRow = (routing_table_row *) currentItem->item;
+                printf("ID: %u IP: %s Port: %u Cost: %u Next_hop_ID: %u\n", currentRow->id, currentRow->ipAddress,
+                       currentRow->port, currentRow->cost, currentRow->next_hop_id);
                 currentItem = currentItem->next;
             }while (currentItem != NULL);
         }
@@ -62,7 +62,7 @@ int printList(list *listInstance, char * listType) {
             do {
                 //specific to neighbour struct
                 neighbour *currentNeighbour = (neighbour *) currentItem->item;
-                printf("%d %d\n", currentNeighbour->id, currentNeighbour->timeoutFD);
+                printf("Neighbour ID: %d Timer FD: %d\n", currentNeighbour->id, currentNeighbour->timeoutFD);
                 currentItem = currentItem->next;
             }while (currentItem != NULL);
         }
@@ -75,7 +75,7 @@ int printList(list *listInstance, char * listType) {
     return 0;
 }
 
-void *findNodeByID(list *listInstance, int id) {
+void *findRowByID(list *listInstance, int id) {
     listItem *currentItem = listInstance;
     if (currentItem == NULL) {
         fprintf(stdout, "List is empty\n");
@@ -83,15 +83,34 @@ void *findNodeByID(list *listInstance, int id) {
     }
     else {
         do {
-            node *currentNode = (node *) currentItem->item;
-            if (currentNode->id == id)
-                return currentNode;
+            routing_table_row *currentRow = (routing_table_row *) currentItem->item;
+            if (currentRow->id == id)
+                return currentRow;
             currentItem = currentItem->next;
         } while (currentItem != NULL);
         fprintf(stdout, "Id not found\n");
         return NULL;
     }
 }
+
+void *findRowByIPandPort(list *listInstance, char *ip, uint16_t port) {
+    listItem *currentItem = listInstance;
+    if (currentItem == NULL) {
+        fprintf(stdout, "List is empty\n");
+        return NULL;
+    }
+    else {
+        do {
+            routing_table_row *currentRow = (routing_table_row *) currentItem->item;
+            if (strcmp(currentRow->ipAddress, ip) ==0 && currentRow->port== port)
+                return currentRow;
+            currentItem = currentItem->next;
+        } while (currentItem != NULL);
+        fprintf(stdout, "ipAddress and port combination not found.\n");
+        return NULL;
+    }
+}
+
 
 int getSize(list *listInstance)
 {

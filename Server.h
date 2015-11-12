@@ -7,16 +7,17 @@
 
 #include <stdint.h>
 #include "main.h"
-
+#define INFINITY -1 //since we are using unsigned int, this will be the largest number possible
+#define UNDEFINED -1
 #define STDIN 0
-typedef struct node
+typedef struct routing_table_row
 {
     uint16_t id;
     char *ipAddress;
-    int port;
+    uint16_t port;
     uint16_t cost;
-} node;
-
+    uint16_t next_hop_id;
+} routing_table_row;
 
 typedef struct neighbour
 {
@@ -27,5 +28,6 @@ typedef struct neighbour
 
 
 int runServer(char *topology_file_name, context *nodeContext);
+int sendRoutingUpdate(context *nodeContext);
 
 #endif //DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_SERVER_H

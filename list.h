@@ -4,6 +4,9 @@
 
 #ifndef DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_LIST_H
 #define DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_LIST_H
+
+#include <stdint.h>
+
 typedef struct listItem {
     void *item;
     struct listItem *next;
@@ -11,8 +14,9 @@ typedef struct listItem {
 
 int addItem(list **listInstance, void *item);
 int printList(list *listInstance, char * listType);
-void *findNodeByID(list *listInstance, int id);
+void *findRowByID(list *listInstance, int id);
 int getSize(list *listInstance);
+void *findRowByIPandPort(list *listInstance, char *ip, uint16_t port);
 
 #endif //DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_LIST_H
 

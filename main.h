@@ -10,17 +10,18 @@
 #define HOST_NAME_SIZE 253
 #define IP_ADDR_LEN 15
 //2147483647 is the biggest 4-byte int
-#define INFINITY 65535
 typedef struct context
 {
     int routing_update_interval;
+    int num_nodes;
     char *myHostName;
     char *myIPAddress;
     int myPort;
     int myId;
     int mySockFD;
-    list *nodesList;
+    list *routing_table;
     list *neighbourList;
+    uint16_t **distance_matrix;
 } context;
 
 

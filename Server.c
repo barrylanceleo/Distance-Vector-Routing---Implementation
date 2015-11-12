@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include "Server.h"
 #include "SocketUtils.h"
+#include "user_interface.h"
 
 char *readLine(FILE **fp)
 {
@@ -46,7 +47,7 @@ char *readLine(FILE **fp)
 
 int readTopologyFile(char *topology_file_name, context *nodeContext)
 {
-    int num_servers;
+    int num_nodes;
     int num_neighbors;
     FILE *tf = fopen(topology_file_name, "r");
     if(tf == NULL)
@@ -62,8 +63,8 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
         topologyline = readLine(&tf);
         if(topologyline!=NULL)
         {
-            num_servers = atoi(topologyline);
-            if(num_servers==0)
+            num_nodes = atoi(topologyline);
+            if(num_nodes ==0)
             {
                 fprintf(stderr,"Number of servers can't be zero.\n");
                 return -2; //error in topology file
@@ -73,6 +74,30 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
         else
         {
             return -2; //error in topology file
+        }
+
+        //initialize the context variable
+        nodeContext->num_nodes = num_nodes;
+
+        //initialize the distance matrix
+        nodeContext->distance_matrix = (uint16_t **)malloc(num_nodes * sizeof(uint16_t *));
+        int i, j;
+        for(i=0; i < num_nodes; i++)
+        {
+            nodeContext->distance_matrix[i] = (uint16_t *)malloc(num_nodes * sizeof(uint16_t));
+        }
+        for(i=0; i < num_nodes; i++)
+        {
+            for(j=0; j < num_nodes; j++)
+            {
+                if(i==j)
+                {
+                    nodeContext->distance_matrix[i][j] = 0;
+                }
+                else{
+                    nodeContext->distance_matrix[i][j] = INFINITY;
+                }
+            }
         }
 
         //read the number of neighbours
@@ -100,22 +125,22 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
         nodeContext->myId = id;
 
         //read the nodes' ips/ports and build add to the list
-        int i;
-        for(i=0; i < num_servers; i++)
+        for(i=0; i < num_nodes; i++)
         {
+            int cost = INFINITY;
+            int next_hop_id = UNDEFINED;
             topologyline = readLine(&tf);
             if(topologyline!=NULL)
             {
                 int id;
                 char ipAddress[IP_ADDR_LEN];
                 int port;
-                int cost = INFINITY;
                 //parse the line
                 int status = sscanf(topologyline, "%d%s%d", &id, ipAddress, &port);
                 free(topologyline);
                 if(status < 3 || status == EOF)
                 {
-                    fprintf(stderr,"Error in line format while reading node ips and ports.\n");
+                    fprintf(stderr,"Error in line format while reading routing_table_row ips and ports.\n");
                     return -2; //error in topology file
                 }
 
@@ -126,26 +151,28 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                     //changes to make all nodes run on a single machine
 //                    cost = 0;
 //                    //initialize the context variables
-//                    nodeContext.myId = id;
-//                    nodeContext.myPort = port;
-
-                    if(id == nodeContext->myId && port == nodeContext->myPort)
-                    {
-                        cost = 0;
-                    }
+//                    nodeContext->myId = id;
+//                    nodeContext->myPort = port;
 
                 }
 
-                //create a node
-                node *newNode = (node *)malloc(sizeof(node));
-                newNode->id = id;
-                newNode->ipAddress = strdup(ipAddress);
-                newNode->port = port;
-                newNode->cost = cost;
+                if(id == nodeContext->myId)
+                {
+                    cost = 0;
+                    next_hop_id = id;
+                }
 
-                //add node to the list
-                addItem(&(nodeContext->nodesList), newNode);
-                //printf("%d %s %d %d\n", newNode->id, newNode->ipAddress, newNode->port, newNode->cost);
+                //create a routing_table_row
+                routing_table_row *newRow = (routing_table_row *)malloc(sizeof(routing_table_row));
+                newRow->id = id;
+                newRow->ipAddress = strdup(ipAddress);
+                newRow->port = port;
+                newRow->cost = cost;
+                newRow->next_hop_id = next_hop_id;
+
+                //add routing_table_row to the list
+                addItem(&(nodeContext->routing_table), newRow);
+                //printf("%d %s %d %d\n", newRow->id, newRow->ipAddress, newRow->port, newRow->cost);
             }
             else
             {
@@ -155,7 +182,10 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
 
         }
 
-        //read the cost of neighbours,update the cost in nodesList and create a neighbourList
+        //update my cost in the distance matrix
+        nodeContext->distance_matrix[nodeContext->myId-1][nodeContext->myId-1] = 0;
+
+        //read the cost of neighbours,update the cost in distance matric and create a neighbourList
         for(i=0; i < num_neighbors; i++)
         {
             topologyline = readLine(&tf);
@@ -174,9 +204,13 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                     return -2; //error in topology file
                 }
 
-                //update the cost in the NodesList
-                node *neighbourNode = (node *)findNodeByID(nodeContext->nodesList, neighbourId);
-                neighbourNode->cost = cost;
+                //update the cost in the distance matrix
+                nodeContext->distance_matrix[nodeContext->myId-1][neighbourId-1] = cost;
+
+                routing_table_row *neighbour_row = (routing_table_row *) findRowByID(nodeContext->routing_table,
+                                                                                     neighbourId);
+                neighbour_row->cost = cost;
+                neighbour_row->next_hop_id = neighbourId;
 
                 //create a timeoutFD for the neighbour routing update timeout
                 int timeoutFD = timerfd_create(CLOCK_REALTIME, 0);
@@ -196,7 +230,7 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                 newNeighbour->id = neighbourId;
                 newNeighbour->timeoutFD = timeoutFD;
 
-                //add node to the list
+                //add routing_table_row to the list
                 addItem(&(nodeContext->neighbourList), newNeighbour);
             }
             else
@@ -206,8 +240,9 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
             }
         }
 
+
         //print the nodes and neighbours
-//        printList(nodeContext->nodesList, "node");
+//        printList(nodeContext->routing_table, "routing_table_row");
 //        printList(nodeContext->neighbourList, "neighbour");
 
         fclose(tf);
@@ -258,7 +293,8 @@ int broadcastToNeighbours(context *nodeContext, char *msg, int messageLength) {
     else {
         do {
             neighbour *currentNeighbour = (neighbour *) currentItem->item;
-            node *currentNode =(node *)findNodeByID(nodeContext->nodesList, currentNeighbour->id);
+            routing_table_row *currentNode =(routing_table_row *) findRowByID(nodeContext->routing_table,
+                                                                              currentNeighbour->id);
             struct addrinfo *serverAddressInfo = getAddressInfo(currentNode->ipAddress, currentNode->port);
 
             //keep resending untill all data is sent
@@ -282,55 +318,17 @@ int broadcastToNeighbours(context *nodeContext, char *msg, int messageLength) {
     return 0;
 }
 
-int handleCommands(char *command) {
-    //remove the last \n in command if present
-    if (command[strlen(command) - 1] == '\n')
-        command[strlen(command) - 1] = '\0';
-
-    //split the command into parts
-
-    //find the commandLength
-    char delimiter = ' ';
-    int i = 0, commandLength = 0;
-    while(command[i] != '\0')
+int printDistanceMatrix(context *nodeContext)
+{
+    printf("Distance Matrix:\n");
+    int i,j;
+    for(i=0; i < nodeContext->num_nodes; i++)
     {
-        if(command[i] != delimiter)
+        for(j=0; j < nodeContext->num_nodes; j++)
         {
-            commandLength++;
-            //traverse till you find a delimiter
-            do{
-                i++;
-            }while(command[i] != delimiter && command[i] != '\0');
+            printf("%u\t", nodeContext->distance_matrix[i][j]);
         }
-        else{
-            i++;
-        }
-    }
-
-    //check if the command is empty
-    if(commandLength == 0)
-    {
-        return -1;
-    }
-    printf("commandLength: %d\n", commandLength);
-
-    //create the commandParts array and update it
-    char *commandParts[commandLength];
-    i = 0;
-    char *commandPart = strtok(command, " ");
-    commandParts[i] = commandPart;
-    i++;
-    while(commandPart != NULL )
-    {
-        commandPart = strtok(NULL, " ");
-        commandParts[i] = commandPart;
-        i++;
-    }
-
-    //print the commands
-    for(i = 0; i<commandLength; i++)
-    {
-        printf("-%s-\n", commandParts[i]);
+        printf("\n");
     }
     return 0;
 }
@@ -339,7 +337,7 @@ int buildRoutingPacket(context *nodeConText, char *routing_message, int *update_
 {
     printf("Message size should be: %d bytes.\n", *update_size);
 
-    uint16_t num_of_update_fields = htons((uint16_t)getSize(nodeConText->nodesList));
+    uint16_t num_of_update_fields = htons((uint16_t)getSize(nodeConText->routing_table));
     uint16_t port = htons((uint16_t)nodeConText->myPort);
     struct in_addr *ip =(struct in_addr *)malloc(sizeof(struct in_addr));
     int status;
@@ -359,9 +357,9 @@ int buildRoutingPacket(context *nodeConText, char *routing_message, int *update_
     message_size = message_size + 4;
 
     //add the neighbour info to the the message
-    listItem *currentItem = nodeConText->nodesList;
+    listItem *currentItem = nodeConText->routing_table;
     if (currentItem == NULL) {
-        fprintf(stderr, "No node to send routing packet\n");
+        fprintf(stderr, "No routing_table_row to send routing packet\n");
         return -1;
     }
     else {
@@ -369,9 +367,9 @@ int buildRoutingPacket(context *nodeConText, char *routing_message, int *update_
         uint16_t server_id;
         uint16_t cost;
         do {
-            node *currentNode = (node *) currentItem->item;
+            routing_table_row *currentNode = (routing_table_row *) currentItem->item;
 
-            //parse the node
+            //parse the routing_table_row
             if((status= inet_pton(AF_INET, currentNode->ipAddress, ip)) !=1)
             {
                 fprintf(stderr, "Error converting source ipAdress\n");
@@ -381,7 +379,7 @@ int buildRoutingPacket(context *nodeConText, char *routing_message, int *update_
             server_id = htons((uint16_t)currentNode->id);
             cost = htons((uint16_t)currentNode->cost);
 
-            //copy node details to the message
+            //copy routing_table_row details to the message
             memcpy(routing_message+message_size, ip, 4);
             message_size = message_size + 4;
             memcpy(routing_message+message_size, &port, 2);
@@ -426,14 +424,14 @@ int readPacket(int fd, char *message, int messageLength)
     return 0;
 }
 
-int updateCosts(char *message, int messageLength)
+int updateDistanceMatrix(context *nodeContext, int sender_id, char *message, int messageLength)
 {
-    //just print it now
     int parsed_size = 0;
     struct in_addr read_ip;
     uint16_t read_port, read_zero, read_id, read_cost;
     char readIP[INET_ADDRSTRLEN];
     char *returned_ptr;
+    int element_num = 0;
     while(parsed_size != messageLength)
     {
         memcpy(&read_ip, message+parsed_size, 4);
@@ -455,12 +453,92 @@ int updateCosts(char *message, int messageLength)
         read_zero = ntohs(read_zero);
         read_id = ntohs(read_id);
         read_cost = ntohs(read_cost);
+
+        //update the matrix
+        nodeContext->distance_matrix[sender_id -1][read_id-1] = read_cost;
+
         printf("Node Info: %s %u %u %u %u\n", readIP, read_port, read_zero, read_id, read_cost);
+
+        element_num++;
     }
 
     return 0;
 
 }
+
+
+int updateRoutingTable(context *nodeContext)
+{
+
+    //update routing table as per Bellman-Ford equation
+    int change_flag = 0;
+    uint16_t min_cost = INFINITY;
+    uint16_t min_cost_node_id = UNDEFINED;
+    uint16_t **distance_matrix = nodeContext->distance_matrix;
+    uint16_t myId = nodeContext->myId;
+    int intermediate, destination;
+    for(destination = 0; destination < nodeContext->num_nodes; destination++)
+    {
+        if(destination == myId-1) //destination is itself
+            continue;
+        for(intermediate = 0; intermediate < nodeContext->num_nodes; intermediate++)
+        {
+            if(intermediate ==myId-1) //intermediate is itself
+                continue;
+
+            int new_cost = distance_matrix[myId-1][intermediate] + distance_matrix[intermediate][destination];
+            if(new_cost < min_cost)
+            {
+                change_flag = 1;
+                min_cost = new_cost;
+                min_cost_node_id = intermediate;
+            }
+        }
+        distance_matrix[myId-1][destination] = min_cost;
+        min_cost = INFINITY;
+        routing_table_row *destination_row = findRowByID(nodeContext->routing_table, destination+1);
+        if(destination_row != NULL)
+        {
+            destination_row->cost = distance_matrix[myId-1][destination];
+            destination_row->next_hop_id = min_cost_node_id+1;
+        }
+        else
+        {
+            fprintf(stderr, "Error in update the Routing table.\n");
+            return -1;
+        }
+
+    }
+
+    return 0;
+}
+
+
+int sendRoutingUpdate(context *nodeContext)
+{
+    //build the routing update
+    //estimate the size of the update
+    int num_nodes = getSize(nodeContext->routing_table);
+    int update_size = 8 + 12*num_nodes;
+    char update_message[update_size];
+    int status =  buildRoutingPacket(nodeContext, update_message, &update_size);
+    if(status != 0)
+    {
+        fprintf(stderr, "Unable to create routing message\n");
+        return -1;
+    }
+    else
+    {
+        //send routing message to all neighbours
+        if(broadcastToNeighbours(nodeContext, update_message, update_size) != 0)
+        {
+            return -2;
+        }
+        return 0;
+    }
+}
+
+
 
 
 int runServer(char *topology_file_name, context *nodeContext)
@@ -489,13 +567,16 @@ int runServer(char *topology_file_name, context *nodeContext)
         return -2;//error in topology file
     }
 
-    printf("%d %s %s %d\n", nodeContext->myId, nodeContext->myHostName, nodeContext->myIPAddress, nodeContext->myPort);
-    printList(nodeContext->nodesList, "node");
-    printList(nodeContext->neighbourList, "neighbour");
+    printDistanceMatrix(nodeContext);
+
+    printf("My Info:\nID:%d Hostname:%s IP:%s Port:%d\n", nodeContext->myId, nodeContext->myHostName,
+           nodeContext->myIPAddress, nodeContext->myPort);
+    //printList(nodeContext->routing_table, "routing_table_row");
+    //printList(nodeContext->neighbourList, "neighbour");
     nodeContext->mySockFD = startServer(nodeContext->myPort);
     if(nodeContext->mySockFD == -1)
     {
-        //fprintf("Error in creating socket.\n");
+        //fprintf(stderr, "Error in creating socket.\n");
         return -3;
     }
 
@@ -553,7 +634,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                     getline(&command, &commandLength, stdin); //get line the variable if space is not sufficient
 //                    if (stringEquals(command, "\n")) //to handle the stray \n s
 //                        continue;
-                    if((status = handleCommands(command))!=0)
+                    if((status = handleCommand(nodeContext, command))!=0)
                     {
                         if(status == -1)
                         {
@@ -564,7 +645,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                 else if (fd == nodeContext->mySockFD) //message from a host
                 {
                     //read a packet
-                    int messageLength = 8 + getSize(nodeContext->nodesList)*12;
+                    int messageLength = 8 + getSize(nodeContext->routing_table)*12;
                     char message[messageLength];
                     struct sockaddr_storage addr;
                     socklen_t fromlen = sizeof(addr);
@@ -600,14 +681,45 @@ int runServer(char *topology_file_name, context *nodeContext)
                     if(returned_ptr == NULL)
                     {
                     fprintf(stderr," unable to to get back the ipaddress");
+                        continue;
                     }
 
-                    printf("Received Routing update from : %s %u with %u entries.\n", IPAddress, read_port, read_num_of_update_fields);
+                    //find the source's ID
+                    routing_table_row *sender_row;
 
-                    //update Routing table
-                    if((status = updateCosts(message+8, messageLength-8))!=0)
+                    if((sender_row = findRowByIPandPort(nodeContext->routing_table,
+                                         IPAddress, read_port)) == NULL)
                     {
-                        fprintf(stderr, "Error Updating cost.\n");
+                        printf("Received a Routing update packet from a node not"
+                                       " present in this node's topology file. So, ignoring the packet.");
+                        continue;
+                    }
+
+                    int sender_id = sender_row->id;
+
+                    if(read_num_of_update_fields != getSize(nodeContext->routing_table))
+                    {
+                        printf("Received a Routing update packet with more fields than the number of nodes"
+                                       " present in this node's topology file. So, ignoring the packet.");
+                        continue;
+                    }
+                    else 
+                    {
+                        //update the distance matrix with the distance vector received
+                        if((status = updateDistanceMatrix(nodeContext, sender_id, message + 8, messageLength - 8))!=0)
+                        {
+                            fprintf(stderr, "Error building distance vector.\n");
+                        }
+
+                        printDistanceMatrix(nodeContext);
+
+                        if((status = updateRoutingTable(nodeContext))!=0)
+                        {
+                            fprintf(stderr, "Error updating routing table.\n");
+                        }
+
+                        printDistanceMatrix(nodeContext);
+
                     }
 
                 }
@@ -622,28 +734,13 @@ int runServer(char *topology_file_name, context *nodeContext)
                         fprintf(stderr, "Timer expired but error in reading: %s.\n", strerror(errno));
                     }
                     else{
-                        printf("Timer expired: %lu.\n", timers_expired);
+                        //printf("Timer expired: %lu.\n", timers_expired);
                     }
 
-                    //build the routing update
-                    //estimate the size of the update
-                    int num_nodes = getSize(nodeContext->nodesList);
-                    int update_size = 8 + 12*num_nodes;
-                    char update_message[update_size];
-                    int status =  buildRoutingPacket(nodeContext, update_message, &update_size);
-                    if(status != 0)
+                    if((status = sendRoutingUpdate(nodeContext))!=0)
                     {
-                        fprintf(stderr, "Unable to create routing message\n");
+                        fprintf(stderr, "Error Sending routing update.\n");
                     }
-                    else
-                    {
-                        //send routing message to all hosts
-                        if(broadcastToNeighbours(nodeContext, update_message, update_size) == -1)
-                        {
-                            return -4;
-                        }
-                    }
-
                 }
                 else // handle other data
                 {

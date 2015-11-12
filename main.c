@@ -18,8 +18,9 @@ int main(int argc, char **args)
     nodeContext.myPort = NULL;
     nodeContext.myId = NULL;
     nodeContext.mySockFD = NULL;
-    nodeContext.nodesList = NULL;
+    nodeContext.routing_table = NULL;
     nodeContext.neighbourList = NULL;
+    nodeContext.distance_matrix = NULL;
 
     if(argc == 5)
     {
