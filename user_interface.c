@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "user_interface.h"
 #include "Server.h"
 
@@ -25,6 +26,9 @@ int displayRoutingTable(context *nodeContext)
         return 0;
     }
 }
+
+
+
 
 int handleCommand(context * nodeContext, char *command) {
 
@@ -85,6 +89,44 @@ int handleCommand(context * nodeContext, char *command) {
         {
             fprintf(stderr, "Error Sending routing update.\n");
         }
+    }
+    else if (commandLength == 4 && strcmp(commandParts[0], "update") == 0)
+    {
+        uint16_t new_cost;
+        uint16_t source_id = atoi(commandParts[1]);
+        uint16_t destination_id = atoi(commandParts[2]);
+        if(strcmp(commandParts[3], "inf") == 0)
+        {
+            new_cost = INFINITY;
+        }
+        else
+        {
+            new_cost = atoi(commandParts[3]);
+        }
+
+        //make the first id as the source id
+        if(destination_id == nodeContext->myId)
+        {
+            //swap
+            uint16_t temp = destination_id;
+            destination_id = source_id;
+            source_id = temp;
+        }
+        else if(source_id != nodeContext->myId)
+        {
+            printf("You can modify only the cost of links connected to this node.\n");
+            return -1;
+        }
+
+        int status;
+        if((status = updateLinkCost(nodeContext, destination_id, new_cost))!=0)
+        {
+            fprintf(stderr, "Error updating Link Cost.\n");
+            return -1;
+        }
+
+        printDistanceMatrix(nodeContext);
+
     }
 
     return 0;

@@ -9,7 +9,6 @@
 //253 is the maximum length of domain name
 #define HOST_NAME_SIZE 253
 #define IP_ADDR_LEN 15
-//2147483647 is the biggest 4-byte int
 typedef struct context
 {
     int routing_update_interval;

@@ -75,6 +75,21 @@ int printList(list *listInstance, char * listType) {
     return 0;
 }
 
+void *findNeighbourByID(list *listInstance, int id) {
+    listItem *currentItem = listInstance;
+    if (currentItem == NULL) {
+        return NULL;
+    }
+    else {
+        do {
+            neighbour *currentNeighbour = (neighbour *) currentItem->item;
+            if (currentNeighbour->id == id)
+                return currentNeighbour;
+            currentItem = currentItem->next;
+        } while (currentItem != NULL);
+        return NULL;
+    }
+}
 void *findRowByID(list *listInstance, int id) {
     listItem *currentItem = listInstance;
     if (currentItem == NULL) {

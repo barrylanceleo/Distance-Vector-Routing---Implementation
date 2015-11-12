@@ -21,7 +21,8 @@ typedef struct routing_table_row
 
 typedef struct neighbour
 {
-    int id;
+    uint16_t id;
+    uint16_t cost;
     int timeoutFD; //this expires when a routing update is not received
                     // from the neighbour for 3 routing intervals
 } neighbour;
@@ -29,5 +30,6 @@ typedef struct neighbour
 
 int runServer(char *topology_file_name, context *nodeContext);
 int sendRoutingUpdate(context *nodeContext);
-
+int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_cost);
+int printDistanceMatrix(context *nodeContext);
 #endif //DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_SERVER_H

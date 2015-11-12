@@ -228,9 +228,10 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                 //create a neighbour
                 neighbour *newNeighbour = (neighbour *)malloc(sizeof(neighbour));
                 newNeighbour->id = neighbourId;
+                newNeighbour->cost = cost;
                 newNeighbour->timeoutFD = timeoutFD;
 
-                //add routing_table_row to the list
+                //add neighbour to the list
                 addItem(&(nodeContext->neighbourList), newNeighbour);
             }
             else
@@ -470,49 +471,54 @@ int updateDistanceMatrix(context *nodeContext, int sender_id, char *message, int
 int updateRoutingTable(context *nodeContext)
 {
 
+    if (nodeContext->neighbourList == NULL) {
+        printf("There are no neighbours so no update to the distance vector.\n");
+        return -1;
+    }
     //update routing table as per Bellman-Ford equation
     int change_flag = 0;
     uint16_t min_cost = INFINITY;
     uint16_t min_cost_node_id = UNDEFINED;
     uint16_t **distance_matrix = nodeContext->distance_matrix;
     uint16_t myId = nodeContext->myId;
-    int intermediate, destination;
+    uint16_t destination;
     for(destination = 0; destination < nodeContext->num_nodes; destination++)
     {
         if(destination == myId-1) //destination is itself
             continue;
-        for(intermediate = 0; intermediate < nodeContext->num_nodes; intermediate++)
-        {
-            if(intermediate ==myId-1) //intermediate is itself
-                continue;
 
-            int new_cost = distance_matrix[myId-1][intermediate] + distance_matrix[intermediate][destination];
+        //the intermediate nodes need to be the neighbours
+        struct listItem *currentItem = nodeContext->neighbourList;
+        do {
+            neighbour *currentNeighbour = (neighbour *) currentItem->item;
+
+            int new_cost = currentNeighbour->cost + distance_matrix[currentNeighbour->id-1][destination];
             if(new_cost < min_cost)
             {
                 change_flag = 1;
                 min_cost = new_cost;
-                min_cost_node_id = intermediate;
+                min_cost_node_id = currentNeighbour->id;
             }
-        }
+            currentItem = currentItem->next;
+        } while (currentItem != NULL);
+
         distance_matrix[myId-1][destination] = min_cost;
         min_cost = INFINITY;
         routing_table_row *destination_row = findRowByID(nodeContext->routing_table, destination+1);
         if(destination_row != NULL)
         {
             destination_row->cost = distance_matrix[myId-1][destination];
-            destination_row->next_hop_id = min_cost_node_id+1;
+            destination_row->next_hop_id = min_cost_node_id;
         }
         else
         {
             fprintf(stderr, "Error in update the Routing table.\n");
             return -1;
         }
-
     }
 
     return 0;
 }
-
 
 int sendRoutingUpdate(context *nodeContext)
 {
@@ -538,7 +544,55 @@ int sendRoutingUpdate(context *nodeContext)
     }
 }
 
+int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_cost)
+{
 
+    //if destination is not a neighbour add it as a neighbour, else update its cost
+    neighbour *neighbourNode;
+    if((neighbourNode = findNeighbourByID(nodeContext->neighbourList, destination_id))==NULL)
+    {
+        printf("%d is not a neighbour of %d. So, adding it as a neighbour and updating the cost.\n",
+               destination_id, nodeContext->myId);
+
+        //add neighbour
+        //create a timeoutFD for the neighbour routing update timeout
+        int timeoutFD = timerfd_create(CLOCK_REALTIME, 0);
+        if (timeoutFD == -1)
+            fprintf(stderr, "Error creating timer: %s.\n", strerror(errno));
+
+        struct itimerspec time_value;
+        time_value.it_value.tv_sec = nodeContext->routing_update_interval*3; //initial time
+        time_value.it_value.tv_nsec = 0;
+        time_value.it_interval.tv_sec = nodeContext->routing_update_interval*3; //interval time
+        time_value.it_interval.tv_nsec = 0;
+        if (timerfd_settime(timeoutFD, 0, &time_value, NULL) == -1)
+            fprintf(stderr, "Error setting time in timer: %s.\n", strerror(errno));
+
+        //create a neighbour
+        neighbour *newNeighbour = (neighbour *)malloc(sizeof(neighbour));
+        newNeighbour->id = destination_id;
+        newNeighbour->cost = new_cost;
+        newNeighbour->timeoutFD = timeoutFD;
+
+        //add neighbour to the list
+        addItem(&(nodeContext->neighbourList), newNeighbour);
+    }
+    else
+    {
+        neighbourNode->cost = new_cost;
+    }
+
+
+
+    //invoke an update on the Routing table as the neighbour cost has changed
+    int status;
+    if((status = updateRoutingTable(nodeContext))!=0)
+    {
+        fprintf(stderr, "Error updating routing table.\n");
+        return -1;
+    }
+    return 0;
+}
 
 
 int runServer(char *topology_file_name, context *nodeContext)
