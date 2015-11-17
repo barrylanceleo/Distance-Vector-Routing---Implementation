@@ -22,7 +22,8 @@ int main(int argc, char **args)
     nodeContext.neighbourList = NULL;
     nodeContext.distance_matrix = NULL;
     nodeContext.received_packet_counter = 0;
-    //FD_ZERO(&(nodeContext.FDList));
+    FD_ZERO(&nodeContext.FDList);
+    nodeContext.FDmax = 0;
 
     if(argc == 5)
     {

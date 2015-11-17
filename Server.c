@@ -622,10 +622,12 @@ int disableLinkToNode(context *nodeContext, uint16_t node_id)
     return 0;
 }
 
-int simulateNoodeCrash(context *nodeContext)
+int simulateNodeCrash(context *nodeContext)
 {
-
-
+    //simulate node crash by clearing the masterFDList and adding only stdin to it
+    FD_ZERO(&nodeContext->FDList);
+    FD_SET(STDIN, &nodeContext->FDList);
+    nodeContext->FDmax = STDIN;
 
     return 0;
 }
@@ -670,16 +672,14 @@ int runServer(char *topology_file_name, context *nodeContext)
         return -3;
     }
 
-    fd_set masterFDList, tempFDList; //Master file descriptor list to add all sockets and stdin
-    int fdmax; //to hold the max file descriptor value
-    FD_ZERO(&masterFDList); // clear the master and temp sets
-    FD_ZERO(&tempFDList);
-    FD_SET(STDIN, &masterFDList); // add STDIN to master FD list
-    fdmax = STDIN;
+    fd_set tempFDList; //temp file descriptor list to hold all sockets and stdin
+    FD_ZERO(&tempFDList); // clear the temp set
+    FD_SET(STDIN, &nodeContext->FDList); // add STDIN to master FD list
+    nodeContext->FDmax = STDIN;
 
-    FD_SET(nodeContext->mySockFD, &masterFDList); //add the listener to master FD list and update fdmax
-    if (nodeContext->mySockFD > fdmax)
-        fdmax = nodeContext->mySockFD;
+    FD_SET(nodeContext->mySockFD, &nodeContext->FDList); //add the listener to master FD list and update fdmax
+    if (nodeContext->mySockFD > nodeContext->FDmax)
+        nodeContext->FDmax = nodeContext->mySockFD;
 
     //create a routing_update_timerFD for routing updates
     int routing_update_timerFD = timerfd_create(CLOCK_REALTIME, 0);
@@ -694,19 +694,19 @@ int runServer(char *topology_file_name, context *nodeContext)
     if (timerfd_settime(routing_update_timerFD, 0, &time_value, NULL) == -1)
         fprintf(stderr, "Error setting time in timer: %s.\n", strerror(errno));
 
-    FD_SET(routing_update_timerFD, &masterFDList); //add the timer to master FD list and update fdmax
-    if (routing_update_timerFD > fdmax)
-        fdmax = routing_update_timerFD;
+    FD_SET(routing_update_timerFD, &nodeContext->FDList); //add the timer to master FD list and update fdmax
+    if (routing_update_timerFD > nodeContext->FDmax)
+        nodeContext->FDmax = routing_update_timerFD;
 
 
     while (1) //keep waiting for input and data
     {
         printf("$");
         fflush(stdout); //print the terminal symbol
-        tempFDList = masterFDList; //make a copy of masterFDList and use it as select() modifies the list
+        tempFDList = nodeContext->FDList; //make a copy of masterFDList and use it as select() modifies the list
 
         //int select(int numfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
-        if (select(fdmax + 1, &tempFDList, NULL, NULL, NULL) ==
+        if (select(nodeContext->FDmax + 1, &tempFDList, NULL, NULL, NULL) ==
             -1) //select waits till it gets data in an fd in the list
         {
             fprintf(stderr, "Error in select\n");
@@ -714,7 +714,7 @@ int runServer(char *topology_file_name, context *nodeContext)
         }
         // an FD has data so iterate through the list to find the fd with data
         int fd;
-        for (fd = 0; fd <= fdmax; fd++) {
+        for (fd = 0; fd <= nodeContext->FDmax; fd++) {
             if (FD_ISSET(fd, &tempFDList)) //found a FD with data
             {
                 if (fd == STDIN) //data from commandLine(STDIN)
@@ -728,7 +728,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                     {
                         if(status == -1)
                         {
-                            printf("Empty command.\n");
+                            //printf("Empty command.\n");
                         }
                     }
                 }

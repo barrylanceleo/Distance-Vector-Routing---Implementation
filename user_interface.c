@@ -162,8 +162,8 @@ int handleCommand(context * nodeContext, char *command) {
     }
     else if (commandLength == 1 && strcmp(commandParts[0], "crash") == 0)
     {
-        //simulateNoodeCrash(nodeContext);
-
+        simulateNodeCrash(nodeContext);
+        printf("crash SUCCESS this node will not send/receive routing updates further.\n");
     }
     return 0;
 }
