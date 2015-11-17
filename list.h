@@ -13,6 +13,7 @@ typedef struct listItem {
 }listItem, list;
 
 int addItem(list **listInstance, void *item);
+int removeNeighbourByID(list **listInstance, uint16_t id);
 int printList(list *listInstance, char * listType);
 void *findRowByID(list *listInstance, int id);
 int getSize(list *listInstance);

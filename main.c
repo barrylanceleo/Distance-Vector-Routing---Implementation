@@ -21,6 +21,8 @@ int main(int argc, char **args)
     nodeContext.routing_table = NULL;
     nodeContext.neighbourList = NULL;
     nodeContext.distance_matrix = NULL;
+    nodeContext.received_packet_counter = 0;
+    //FD_ZERO(&(nodeContext.FDList));
 
     if(argc == 5)
     {

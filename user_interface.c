@@ -16,19 +16,24 @@ int displayRoutingTable(context *nodeContext)
         return -1;
     }
     else {
+            printf("%10s %10s %10s\n", "Destination", "Next_Hop", "Cost");
         do {
             //for each routing_table_row
             routing_table_row *currentRow = (routing_table_row *) currentItem->item;
-            printf("%u %u %u\n", currentRow->id,
-                   currentRow->next_hop_id, currentRow->cost);
+            if(currentRow->cost != INFINITY)
+            {
+                printf("%10u %10u %10u\n", currentRow->id,
+                       currentRow->next_hop_id, currentRow->cost);
+            }
+            else{
+//                printf("%10u %10s %10s\n", currentRow->id,
+//                              "Undefined", "Infinity");
+            }
             currentItem = currentItem->next;
         }while (currentItem != NULL);
         return 0;
     }
 }
-
-
-
 
 int handleCommand(context * nodeContext, char *command) {
 
@@ -56,7 +61,7 @@ int handleCommand(context * nodeContext, char *command) {
         }
     }
 
-    printf("commandLength: %d\n", commandLength);
+    //printf("commandLength: %d\n", commandLength);
 
     //create the commandParts array and update it
     char *commandParts[commandLength];
@@ -72,11 +77,11 @@ int handleCommand(context * nodeContext, char *command) {
     }
 
     int status;
-    //print the commands
-    for(i = 0; i<commandLength; i++)
-    {
-        printf("-%s-\n", commandParts[i]);
-    }
+//    //print the commands
+//    for(i = 0; i<commandLength; i++)
+//    {
+//        printf("-%s-\n", commandParts[i]);
+//    }
 
     if(commandLength == 1 && strcmp(commandParts[0], "display") == 0)
     {
@@ -114,20 +119,51 @@ int handleCommand(context * nodeContext, char *command) {
         }
         else if(source_id != nodeContext->myId)
         {
-            printf("You can modify only the cost of links connected to this node.\n");
+            printf("update ERROR: You can modify only the cost of links which have an end at this node.\n");
             return -1;
         }
-
-        int status;
         if((status = updateLinkCost(nodeContext, destination_id, new_cost))!=0)
         {
-            fprintf(stderr, "Error updating Link Cost.\n");
+            printf("update ERROR: Unable to modify the Link Cost.\n");
             return -1;
         }
+        else
+        {
+            printf("update SUCCESS.\n");
+        }
+        //printDistanceMatrix(nodeContext);
+    }
+    else if (commandLength == 1 && strcmp(commandParts[0], "packets") == 0)
+    {
+        printf("packets SUCCESS %d.\n", nodeContext->received_packet_counter);
+        nodeContext->received_packet_counter = 0;
+    }
+    else if (commandLength == 2 && strcmp(commandParts[0], "disable") == 0)
+    {
+        uint16_t server_id;
+        if((server_id = atoi(commandParts[0])) <= 0)
+        {
+            printf("disable ERROR invalid server_id.\n");
+        }
+        else{
 
-        printDistanceMatrix(nodeContext);
+            if((status = disableLinkToNode(nodeContext, server_id)) == 0)
+            {
+                printf("disable SUCCESS.\n");
+            }
+            else if (status == -2){
+                printf("disable ERROR given server_id is not a neighbour so there is no direct link to disable.\n");
+            }
+            else
+            {
+                printf("disable ERROR neighbour link removed but routing table not updated.This is bad.\n");
+            }
+        }
+    }
+    else if (commandLength == 1 && strcmp(commandParts[0], "crash") == 0)
+    {
+        //simulateNoodeCrash(nodeContext);
 
     }
-
     return 0;
 }

@@ -7,8 +7,8 @@
 
 #include <stdint.h>
 #include "main.h"
-#define INFINITY -1 //since we are using unsigned int, this will be the largest number possible
-#define UNDEFINED -1
+#define INFINITY 65535 //since we are using unsigned int, this will be the largest number possible
+#define UNDEFINED 65535
 #define STDIN 0
 typedef struct routing_table_row
 {
@@ -32,4 +32,5 @@ int runServer(char *topology_file_name, context *nodeContext);
 int sendRoutingUpdate(context *nodeContext);
 int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_cost);
 int printDistanceMatrix(context *nodeContext);
+int disableLinkToNode(context *nodeContext, uint16_t node_id);
 #endif //DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_SERVER_H

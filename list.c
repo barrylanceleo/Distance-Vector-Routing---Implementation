@@ -40,6 +40,30 @@ int addItem(list **listInstance, void *item) {
     return 0;
 }
 
+int removeNeighbourByID(list **listInstance, uint16_t id) {
+
+    listItem *currentItem = *listInstance;
+    if (currentItem == NULL) {
+        //List is empty
+        return -1;
+    }
+    do{
+        neighbour *currentNeighbour = (neighbour *) currentItem->item;
+        if (currentNeighbour->id == id) {
+            //delete the neighbour
+            free(currentNeighbour);
+            listItem *nextItem  = currentItem->next;
+            free(currentItem);
+            *listInstance = nextItem;
+            return 0;
+        }
+        currentItem = currentItem->next;
+    }while(currentItem != NULL);
+
+    //id not found
+    return -2;
+}
+
 int printList(list *listInstance, char * listType) {
     listItem *currentItem = listInstance;
     if (currentItem == NULL) {
@@ -125,7 +149,6 @@ void *findRowByIPandPort(list *listInstance, char *ip, uint16_t port) {
         return NULL;
     }
 }
-
 
 int getSize(list *listInstance)
 {

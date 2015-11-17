@@ -21,6 +21,8 @@ typedef struct context
     list *routing_table;
     list *neighbourList;
     uint16_t **distance_matrix;
+    int received_packet_counter;
+    //fd_set FDList;
 } context;
 
 
