@@ -523,7 +523,6 @@ int updateRoutingTable(context *nodeContext)
             return -1;
         }
     }
-
     return change_flag;
 }
 
@@ -623,6 +622,21 @@ int disableLinkToNode(context *nodeContext, uint16_t node_id)
         }
         else
         {
+            //update the distance vector and routing table
+            if((status = updateRoutingTable(nodeContext)) == 1)
+            {
+                //there was a change in the distance vector, not sending update as per project req
+                //sendRoutingUpdate(nodeContext);
+            }
+            else if (status ==  0)
+            {
+                //no change in the distance vector nothing to do
+            }
+            else
+            {
+                return -1;
+            }
+
 //            //update the routing table
 //            routing_table_row *destination_row = findRowByID(nodeContext->routing_table, node_id);
 //            if(destination_row != NULL)
@@ -639,20 +653,7 @@ int disableLinkToNode(context *nodeContext, uint16_t node_id)
 //            //update its distance vector
 //            nodeContext->distance_matrix[nodeContext->myId-1][node_id] = INFINITY;
 //            //////////////////////////////////////////
-//            //update the routing table
-//            if((status = updateRoutingTable(nodeContext)) == 1)
-//            {
-//                //there was a change in the distance vector, not sending update as per project req
-//                //sendRoutingUpdate(nodeContext);
-//            }
-//            else if (status ==  0)
-//            {
-//                //no change in the distance vector
-//            }
-//            else
-//            {
-//                return -1;
-//            }
+
         }
     }
     return 0;
