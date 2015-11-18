@@ -35,6 +35,28 @@ int displayRoutingTable(context *nodeContext)
     }
 }
 
+int printDistanceMatrix(context *nodeContext)
+{
+    printf("Distance Matrix:\n");
+    int i,j;
+    for(i=0; i < nodeContext->num_nodes; i++)
+    {
+        for(j=0; j < nodeContext->num_nodes; j++)
+        {
+            if(nodeContext->distance_matrix[i][j] == INFINITY)
+            {
+                printf("%s\t\t", "inf");
+            }
+            else
+            {
+                printf("%u\t\t", nodeContext->distance_matrix[i][j]);
+            }
+        }
+        printf("\n");
+    }
+    return 0;
+}
+
 int handleCommand(context * nodeContext, char *command) {
 
     //remove the last \n in command if present
@@ -149,7 +171,6 @@ int handleCommand(context * nodeContext, char *command) {
         {
             printf("update SUCCESS\n");
         }
-        //printDistanceMatrix(nodeContext);
     }
     else if (commandLength == 1 && strcmp(commandParts[0], "packets") == 0)
     {
@@ -174,7 +195,7 @@ int handleCommand(context * nodeContext, char *command) {
             }
             else
             {
-                printf("disable ERROR neighbour link removed but routing table not updated.This is bad.\n");
+                //do  nothing
             }
         }
     }

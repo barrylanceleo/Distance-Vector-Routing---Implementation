@@ -16,8 +16,9 @@ typedef struct context
     int num_nodes;
     char *myHostName;
     char *myIPAddress;
-    int myPort;
-    int myId;
+    uint16_t myPort;
+    uint16_t myId;
+    uint16_t myDVIndex;
     int mySockFD;
     list *routing_table;
     list *neighbourList;

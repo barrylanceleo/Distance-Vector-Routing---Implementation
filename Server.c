@@ -25,10 +25,6 @@ char *readLine(FILE **fp)
         {
             line[strlen(line)-1] = 0;
         }
-        else
-        {
-            fprintf(stderr,"Line not read completely in readLine().\n");
-        }
         return strdup(line);
     }
     else
@@ -81,23 +77,10 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
 
         //initialize the distance matrix
         nodeContext->distance_matrix = (uint16_t **)malloc(num_nodes * sizeof(uint16_t *));
-        int i, j;
+        uint16_t i, j;
         for(i=0; i < num_nodes; i++)
         {
             nodeContext->distance_matrix[i] = (uint16_t *)malloc(num_nodes * sizeof(uint16_t));
-        }
-        for(i=0; i < num_nodes; i++)
-        {
-            for(j=0; j < num_nodes; j++)
-            {
-                if(i==j)
-                {
-                    nodeContext->distance_matrix[i][j] = 0;
-                }
-                else{
-                    nodeContext->distance_matrix[i][j] = INFINITY;
-                }
-            }
         }
 
         //read the number of neighbours
@@ -160,6 +143,7 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                 {
                     cost = 0;
                     next_hop_id = id;
+                    nodeContext->myDVIndex = i;
                 }
 
                 //create a routing_table_row
@@ -169,10 +153,22 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                 newRow->port = port;
                 newRow->cost = cost;
                 newRow->next_hop_id = next_hop_id;
+                newRow->DVIndex = i; //i will be the index for this row in the distance vector matrix
+
+                //initialize the corresponding distance vector
+                for(j=0; j < num_nodes; j++)
+                {
+                    if(j == newRow->DVIndex)
+                    {
+                        nodeContext->distance_matrix[newRow->DVIndex][j] = 0;
+                    }
+                    else{
+                        nodeContext->distance_matrix[newRow->DVIndex][j] = INFINITY;
+                    }
+                }
 
                 //add routing_table_row to the list
                 addItem(&(nodeContext->routing_table), newRow);
-                //printf("%d %s %d %d\n", newRow->id, newRow->ipAddress, newRow->port, newRow->cost);
             }
             else
             {
@@ -181,9 +177,6 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
             }
 
         }
-
-        //update my cost in the distance matrix
-        nodeContext->distance_matrix[nodeContext->myId-1][nodeContext->myId-1] = 0;
 
         //read the cost of neighbours,update the cost in distance matrix and create a neighbourList
         for(i=0; i < num_neighbors; i++)
@@ -204,8 +197,16 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                     return -2; //error in topology file
                 }
 
+                //get the DVIndex
+                int neighbourDVIndex;
+                if((neighbourDVIndex= getDVIndex(nodeContext->routing_table, neighbourId)) == -1)
+                {
+                    fprintf(stderr,"Encountered unxpected server_id %u while reading costs.\n", neighbourId);
+                    return -2; //error in topology file
+                }
+
                 //update the cost in the distance matrix
-                nodeContext->distance_matrix[nodeContext->myId-1][neighbourId-1] = cost;
+                nodeContext->distance_matrix[nodeContext->myDVIndex][neighbourDVIndex] = cost;
 
                 routing_table_row *neighbour_row = (routing_table_row *) findRowByID(nodeContext->routing_table,
                                                                                      neighbourId);
@@ -245,7 +246,6 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                 return -2; //error in topology file
             }
         }
-
 
         //print the nodes and neighbours
 //        printList(nodeContext->routing_table, "routing_table_row");
@@ -320,21 +320,6 @@ int broadcastToNeighbours(context *nodeContext, char *msg, int messageLength) {
 
             currentItem = currentItem->next;
         } while (currentItem != NULL);
-    }
-    return 0;
-}
-
-int printDistanceMatrix(context *nodeContext)
-{
-    printf("Distance Matrix:\n");
-    int i,j;
-    for(i=0; i < nodeContext->num_nodes; i++)
-    {
-        for(j=0; j < nodeContext->num_nodes; j++)
-        {
-            printf("%u\t", nodeContext->distance_matrix[i][j]);
-        }
-        printf("\n");
     }
     return 0;
 }
@@ -437,7 +422,13 @@ int updateDistanceMatrix(context *nodeContext, int sender_id, char *message, int
     uint16_t read_port, read_zero, read_id, read_cost;
     char readIP[INET_ADDRSTRLEN];
     char *returned_ptr;
-    int element_num = 0;
+    //get the sender's DVindex
+    int senderDVIndex;
+    if((senderDVIndex= getDVIndex(nodeContext->routing_table, sender_id)) == -1)
+    {
+        return -1;
+    }
+
     while(parsed_size != messageLength)
     {
         memcpy(&read_ip, message+parsed_size, 4);
@@ -460,14 +451,21 @@ int updateDistanceMatrix(context *nodeContext, int sender_id, char *message, int
         read_id = ntohs(read_id);
         read_cost = ntohs(read_cost);
 
-        //update the matrix
-        nodeContext->distance_matrix[sender_id -1][read_id-1] = read_cost;
-
+        //get the corresponding DVindex
+        int DVIndex;
+        if((DVIndex= getDVIndex(nodeContext->routing_table, read_id)) == -1)
+        {
+            fprintf(stderr,"Found undefined server_id %u in message. Ignoring that cost.\n", read_id);
+        }
+        else
+        {
+            //update the matrix
+            nodeContext->distance_matrix[senderDVIndex][DVIndex] = read_cost;
+        }
         //printf("Node Info: %s %u %u %u %u\n", readIP, read_port, read_zero, read_id, read_cost);
-
-        element_num++;
     }
 
+    //printDistanceMatrix(nodeContext);
     return 0;
 
 }
@@ -477,7 +475,7 @@ int updateRoutingTable(context *nodeContext)
 {
 
     if (nodeContext->neighbourList == NULL) {
-        printf("There are no neighbours so no update to the distance vector.\n");
+        //printf("There are no neighbours so no update to the distance vector.\n");
         return -1;
     }
     //update routing table as per Bellman-Ford equation
@@ -486,43 +484,46 @@ int updateRoutingTable(context *nodeContext)
     uint16_t min_cost_node_id = UNDEFINED;
     uint16_t **distance_matrix = nodeContext->distance_matrix;
     uint16_t myId = nodeContext->myId;
-    uint16_t destination;
-    for(destination = 0; destination < nodeContext->num_nodes; destination++)
+    listItem *currentRTItem = nodeContext->routing_table;
+    while (currentRTItem != NULL) //destination iteration
     {
-        if(destination == myId-1) //destination is itself
+        routing_table_row *destination_row = (routing_table_row *) currentRTItem->item;
+        if(destination_row->id == myId) //destination is itself
+        {
+            currentRTItem = currentRTItem->next;
             continue;
+        }
 
-        //the intermediate nodes need to be the neighbours
-        struct listItem *currentItem = nodeContext->neighbourList;
-        while (currentItem != NULL) {
-            neighbour *currentNeighbour = (neighbour *) currentItem->item;
-            int new_cost = currentNeighbour->cost + distance_matrix[currentNeighbour->id-1][destination];
+        int desinationDVIndex = getDVIndex(nodeContext->routing_table, destination_row->id);
+
+        //iterate through the neighbours
+        listItem *currentNeighbourItem = nodeContext->neighbourList;
+        while (currentNeighbourItem != NULL) {
+            neighbour *currentNeighbour = (neighbour *) currentNeighbourItem->item;
+
+            int neighbourDVIndex = getDVIndex(nodeContext->routing_table, currentNeighbour->id);
+
+            int new_cost = currentNeighbour->cost + distance_matrix[neighbourDVIndex][desinationDVIndex];
             if(new_cost < min_cost)
             {
                 min_cost = new_cost;
                 min_cost_node_id = currentNeighbour->id;
             }
-            currentItem = currentItem->next;
+            currentNeighbourItem = currentNeighbourItem->next;
         }
 
-        if(distance_matrix[myId-1][destination] != min_cost)
+        if(distance_matrix[nodeContext->myDVIndex][desinationDVIndex] != min_cost)
         {
             change_flag = 1;
-            distance_matrix[myId-1][destination] = min_cost;
+            distance_matrix[nodeContext->myDVIndex][desinationDVIndex] = min_cost;
         }
         min_cost = INFINITY;
-        routing_table_row *destination_row = findRowByID(nodeContext->routing_table, destination+1);
-        if(destination_row != NULL)
-        {
-            destination_row->cost = distance_matrix[myId-1][destination];
-            destination_row->next_hop_id = min_cost_node_id;
-        }
-        else
-        {
-            fprintf(stderr, "Error updating the Routing table.\n");
-            return -1;
-        }
+        destination_row->cost = distance_matrix[nodeContext->myDVIndex][desinationDVIndex];
+        destination_row->next_hop_id = min_cost_node_id;
+
+        currentRTItem = currentRTItem->next;
     }
+
     return change_flag;
 }
 
@@ -614,8 +615,7 @@ int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_c
     }
     else
     {
-        fprintf(stderr, "Error updating routing table.\n");
-        return -1;
+        //nothing to update neighbour list is empty
     }
     return 0;
 }
@@ -650,25 +650,8 @@ int disableLinkToNode(context *nodeContext, uint16_t node_id)
             }
             else
             {
-                return -1;
+                //nothing to update neighbour list is empty
             }
-
-//            //update the routing table
-//            routing_table_row *destination_row = findRowByID(nodeContext->routing_table, node_id);
-//            if(destination_row != NULL)
-//            {
-//                destination_row->cost = INFINITY;
-//                destination_row->next_hop_id = UNDEFINED;
-//            }
-//            else
-//            {
-//                fprintf(stderr, "Error in update the Routing table.\n");
-//                return -1;
-//            }
-//
-//            //update its distance vector
-//            nodeContext->distance_matrix[nodeContext->myId-1][node_id] = INFINITY;
-//            //////////////////////////////////////////
 
         }
     }
@@ -700,17 +683,25 @@ int runServer(char *topology_file_name, context *nodeContext)
     }
 
     //read the topology file and initialize the nodeslist
-    int status = readTopologyFile(topology_file_name, nodeContext);
-    if(status == -1)
+    int status;
+    if((status = readTopologyFile(topology_file_name, nodeContext)) != 0 )
     {
-        printf("Topology File not found.\n");
-        return -2;//error in topology file
+        if(status == -1)
+        {
+            printf("Topology File not found.\n");
+            return -2;//error in topology file
+        }
+        else if(status == -2)
+        {
+            printf("Error in topology file format.\n");
+            return -2;//error in topology file
+        }
+        else{
+            printf("ERROR.\n");
+            return -100; //catch all error
+        }
     }
-    else if(status == -2)
-    {
-        printf("Error in topology file format.\n");
-        return -2;//error in topology file
-    }
+
 
     //printDistanceMatrix(nodeContext);
 
@@ -916,7 +907,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                         }
                         else
                         {
-                            fprintf(stderr, "Error updating routing table.\n");
+                            //nothing to update neighbour list is empty
                         }
 
                         //printDistanceMatrix(nodeContext);
@@ -979,13 +970,13 @@ int runServer(char *topology_file_name, context *nodeContext)
                         }
                         else if (status == -2){
                             printf("Did not receive Routing update from Server %u for three routing intervals. "
-                                           "So, tried to remove it from the neighbour list, but failed.\n");
+                                           "So, tried to remove it from the neighbour list, but failed.\n", expiredNodeId);
                             fprintf(stderr, "Server_id is not a neighbour so there is no direct link to disable.\n");
                         }
                         else
                         {
                             printf("Did not receive Routing update from Server %u for three routing intervals. "
-                                           "So, tried to remove it from the neighbour list, but failed.\n");
+                                           "So, tried to remove it from the neighbour list, but failed.\n", expiredNodeId);
                             fprintf(stderr, "Neighbour link removed but routing table not updated.This is bad.\n");
                         }
                     }

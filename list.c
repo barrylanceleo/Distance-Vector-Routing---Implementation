@@ -189,6 +189,21 @@ void *findRowByIPandPort(list *listInstance, char *ip, uint16_t port) {
     }
 }
 
+int getDVIndex(list *listInstance, uint16_t node_id)
+{
+    listItem *currentItem = listInstance;
+    while (currentItem != NULL)
+    {
+        routing_table_row *currentRow = (routing_table_row *) currentItem->item;
+        if(node_id == currentRow->id)
+        {
+            return currentRow->DVIndex;
+        }
+        currentItem = currentItem->next;
+    }
+    return -1;
+}
+
 int getSize(list *listInstance)
 {
     int size = 0;

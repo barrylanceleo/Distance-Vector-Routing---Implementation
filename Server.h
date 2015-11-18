@@ -17,6 +17,7 @@ typedef struct routing_table_row
     uint16_t port;
     uint16_t cost;
     uint16_t next_hop_id;
+    uint16_t DVIndex; //distance vector index for the row
 } routing_table_row;
 
 typedef struct neighbour
@@ -31,7 +32,6 @@ typedef struct neighbour
 int runServer(char *topology_file_name, context *nodeContext);
 int sendRoutingUpdate(context *nodeContext);
 int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_cost);
-int printDistanceMatrix(context *nodeContext);
 int disableLinkToNode(context *nodeContext, uint16_t node_id);
 int simulateNodeCrash(context *nodeContext);
 #endif //DISTANCE_VECTOR_ROUTING_PROTOCOL_IMPLEMENTATION_SERVER_H

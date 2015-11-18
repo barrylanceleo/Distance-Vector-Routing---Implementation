@@ -17,13 +17,14 @@ int main(int argc, char **args)
     nodeContext.myIPAddress = NULL;
     nodeContext.myPort = NULL;
     nodeContext.myId = NULL;
+    nodeContext.myDVIndex = NULL;
     nodeContext.mySockFD = NULL;
     nodeContext.routing_table = NULL;
     nodeContext.neighbourList = NULL;
     nodeContext.distance_matrix = NULL;
-    nodeContext.received_packet_counter = 0;
+    nodeContext.received_packet_counter = NULL;
     FD_ZERO(&nodeContext.FDList);
-    nodeContext.FDmax = 0;
+    nodeContext.FDmax = NULL;
 
     if(argc == 5)
     {
@@ -53,6 +54,11 @@ int main(int argc, char **args)
             if(status == -3)
             {
                 printf("Error creating socket. Terminating...\n");
+                return -1;
+            }
+            else
+            {
+                printf("ERROR. Terminating...\n");
                 return -1;
             }
         }
