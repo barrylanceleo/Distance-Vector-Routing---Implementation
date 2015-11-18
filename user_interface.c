@@ -120,6 +120,13 @@ int handleCommand(context * nodeContext, char *command) {
             new_cost = atoi(commandParts[3]);
         }
 
+        if(new_cost < 0 || new_cost >= INFINITY)
+        {
+            printf("update ERROR: The link cost needs to between 0 and %d.\n"
+                           "This is limited by the 2 byte cost variable size.\n", INFINITY-1);
+            return -1;
+        }
+
         //make the first id as the source id
         if(destination_id == nodeContext->myId)
         {
@@ -140,7 +147,7 @@ int handleCommand(context * nodeContext, char *command) {
         }
         else
         {
-            printf("update SUCCESS.\n");
+            printf("update SUCCESS\n");
         }
         //printDistanceMatrix(nodeContext);
     }

@@ -232,7 +232,7 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                 newNeighbour->timeoutFD = timeoutFD;
 
                 //add neighbour to the list
-                addItem(&(nodeContext->neighbourList), newNeighbour);
+                addItem(&nodeContext->neighbourList, newNeighbour);
 
                 //add the timer to the master fd
                 FD_SET(timeoutFD, &nodeContext->FDList);
@@ -519,7 +519,7 @@ int updateRoutingTable(context *nodeContext)
         }
         else
         {
-            fprintf(stderr, "Error in update the Routing table.\n");
+            fprintf(stderr, "Error updating the Routing table.\n");
             return -1;
         }
     }
@@ -563,8 +563,10 @@ int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_c
     neighbour *neighbourNode;
     if((neighbourNode = findNeighbourByID(nodeContext->neighbourList, destination_id))==NULL)
     {
-        printf("%d is not a neighbour of %d. So, adding it as a neighbour and updating the cost.\n",
-               destination_id, nodeContext->myId);
+        printf("%d is not a neighbour of %d. So, adding it as a neighbour and updating the cost.\n"
+                       "p.s. this will be a one-directional link from %d to %d, to make make it bi-directional "
+                       "you need to add the same link on server %d\n",
+               destination_id, nodeContext->myId, nodeContext->myId, destination_id, destination_id);
 
         //add neighbour
         //create a timeoutFD for the neighbour routing update timeout
@@ -588,6 +590,11 @@ int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_c
 
         //add neighbour to the list
         addItem(&(nodeContext->neighbourList), newNeighbour);
+
+        //add the timer to the master fd
+        FD_SET(timeoutFD, &nodeContext->FDList);
+        nodeContext->FDmax = timeoutFD > nodeContext->FDmax? timeoutFD : nodeContext->FDmax;
+
     }
     else
     {
@@ -596,7 +603,16 @@ int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_c
 
     //invoke an update on the Routing table as the neighbour cost has changed
     int status;
-    if((status = updateRoutingTable(nodeContext))!=0)
+    if((status = updateRoutingTable(nodeContext)) == 1)
+    {
+        //there was a change in the distance vector, not sending update as per project req
+        //sendRoutingUpdate(nodeContext);
+    }
+    else if (status ==  0)
+    {
+        //no change in the distance vector nothing to do
+    }
+    else
     {
         fprintf(stderr, "Error updating routing table.\n");
         return -1;
