@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "list.h"
 #include "Server.h"
 
@@ -47,18 +48,39 @@ int removeNeighbourByID(list **listInstance, uint16_t id) {
         //List is empty
         return -1;
     }
-    do{
-        neighbour *currentNeighbour = (neighbour *) currentItem->item;
-        if (currentNeighbour->id == id) {
-            //delete the neighbour
-            free(currentNeighbour);
-            listItem *nextItem  = currentItem->next;
-            free(currentItem);
-            *listInstance = nextItem;
-            return 0;
-        }
+
+    neighbour *currentNeighbour = (neighbour *) currentItem->item;
+    if (currentNeighbour->id == id) {
+        //deleting the first node
+        close(currentNeighbour->timeoutFD);
+        free(currentNeighbour);
+        listItem *nextItem  = currentItem->next;
+        free(currentItem);
+        *listInstance = nextItem;
+        return 0;
+    }
+    else
+    {
+        listItem *previousItem  = currentItem;
         currentItem = currentItem->next;
-    }while(currentItem != NULL);
+        while(currentItem != NULL)
+        {
+            currentNeighbour = (neighbour *) currentItem->item;
+            if (currentNeighbour->id == id) {
+                //delete the neighbour
+                close(currentNeighbour->timeoutFD);
+                free(currentNeighbour);
+                previousItem->next = currentItem->next;
+                free(currentItem);
+                return 0;
+            }
+            else
+            {
+                previousItem  = currentItem;
+                currentItem = currentItem->next;
+            }
+        }
+    }
 
     //id not found
     return -2;
@@ -114,6 +136,23 @@ void *findNeighbourByID(list *listInstance, int id) {
         return NULL;
     }
 }
+
+void *findNeighbourByTimerFD(list *listInstance, int timer_fd) {
+    listItem *currentItem = listInstance;
+    if (currentItem == NULL) {
+        return NULL;
+    }
+    else {
+        do {
+            neighbour *currentNeighbour = (neighbour *) currentItem->item;
+            if (currentNeighbour->timeoutFD == timer_fd)
+                return currentNeighbour;
+            currentItem = currentItem->next;
+        } while (currentItem != NULL);
+        return NULL;
+    }
+}
+
 void *findRowByID(list *listInstance, int id) {
     listItem *currentItem = listInstance;
     if (currentItem == NULL) {

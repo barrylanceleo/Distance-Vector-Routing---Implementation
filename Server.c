@@ -185,7 +185,7 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
         //update my cost in the distance matrix
         nodeContext->distance_matrix[nodeContext->myId-1][nodeContext->myId-1] = 0;
 
-        //read the cost of neighbours,update the cost in distance matric and create a neighbourList
+        //read the cost of neighbours,update the cost in distance matrix and create a neighbourList
         for(i=0; i < num_neighbors; i++)
         {
             topologyline = readLine(&tf);
@@ -233,6 +233,11 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
 
                 //add neighbour to the list
                 addItem(&(nodeContext->neighbourList), newNeighbour);
+
+                //add the timer to the master fd
+                FD_SET(timeoutFD, &nodeContext->FDList);
+                nodeContext->FDmax = timeoutFD>nodeContext->FDmax?timeoutFD:nodeContext->FDmax;
+
             }
             else
             {
@@ -489,7 +494,7 @@ int updateRoutingTable(context *nodeContext)
 
         //the intermediate nodes need to be the neighbours
         struct listItem *currentItem = nodeContext->neighbourList;
-        do {
+        while (currentItem != NULL) {
             neighbour *currentNeighbour = (neighbour *) currentItem->item;
             int new_cost = currentNeighbour->cost + distance_matrix[currentNeighbour->id-1][destination];
             if(new_cost < min_cost)
@@ -498,7 +503,7 @@ int updateRoutingTable(context *nodeContext)
                 min_cost_node_id = currentNeighbour->id;
             }
             currentItem = currentItem->next;
-        } while (currentItem != NULL);
+        }
 
         if(distance_matrix[myId-1][destination] != min_cost)
         {
@@ -524,6 +529,12 @@ int updateRoutingTable(context *nodeContext)
 
 int sendRoutingUpdate(context *nodeContext)
 {
+    //check if there are neighbours
+    if(nodeContext->neighbourList == NULL)
+    {
+        return -3;
+    }
+
     //build the routing update
     //estimate the size of the update
     int num_nodes = getSize(nodeContext->routing_table);
@@ -598,25 +609,50 @@ int disableLinkToNode(context *nodeContext, uint16_t node_id)
 {
     //check if the node is a neighbour and remove it, if not throw an error
     int status;
-    if((status = removeNeighbourByID(&(nodeContext->neighbourList), node_id)) != 0)
+    neighbour *nodeTodelete;
+    if((nodeTodelete = findNeighbourByID(nodeContext->neighbourList, node_id)) == NULL)
     {
         return -2;
     }
     else
     {
-        //update the routing table
-        if((status = updateRoutingTable(nodeContext)) == 1)
+        FD_CLR(nodeTodelete->timeoutFD, &nodeContext->FDList);
+        if((status = removeNeighbourByID(&nodeContext->neighbourList, node_id)) != 0)
         {
-            //there was a change in the distance vector, not sending update as per project req
-            //sendRoutingUpdate(nodeContext);
-        }
-        else if (status ==  0)
-        {
-            //no change in the distance vector
+            return -2;
         }
         else
         {
-            return -1;
+//            //update the routing table
+//            routing_table_row *destination_row = findRowByID(nodeContext->routing_table, node_id);
+//            if(destination_row != NULL)
+//            {
+//                destination_row->cost = INFINITY;
+//                destination_row->next_hop_id = UNDEFINED;
+//            }
+//            else
+//            {
+//                fprintf(stderr, "Error in update the Routing table.\n");
+//                return -1;
+//            }
+//
+//            //update its distance vector
+//            nodeContext->distance_matrix[nodeContext->myId-1][node_id] = INFINITY;
+//            //////////////////////////////////////////
+//            //update the routing table
+//            if((status = updateRoutingTable(nodeContext)) == 1)
+//            {
+//                //there was a change in the distance vector, not sending update as per project req
+//                //sendRoutingUpdate(nodeContext);
+//            }
+//            else if (status ==  0)
+//            {
+//                //no change in the distance vector
+//            }
+//            else
+//            {
+//                return -1;
+//            }
         }
     }
     return 0;
@@ -675,11 +711,10 @@ int runServer(char *topology_file_name, context *nodeContext)
     fd_set tempFDList; //temp file descriptor list to hold all sockets and stdin
     FD_ZERO(&tempFDList); // clear the temp set
     FD_SET(STDIN, &nodeContext->FDList); // add STDIN to master FD list
-    nodeContext->FDmax = STDIN;
+    nodeContext->FDmax = STDIN > nodeContext->FDmax?STDIN:nodeContext->FDmax;
 
     FD_SET(nodeContext->mySockFD, &nodeContext->FDList); //add the listener to master FD list and update fdmax
-    if (nodeContext->mySockFD > nodeContext->FDmax)
-        nodeContext->FDmax = nodeContext->mySockFD;
+    nodeContext->FDmax = nodeContext->mySockFD > nodeContext->FDmax?nodeContext->mySockFD:nodeContext->FDmax;
 
     //create a routing_update_timerFD for routing updates
     int routing_update_timerFD = timerfd_create(CLOCK_REALTIME, 0);
@@ -695,9 +730,7 @@ int runServer(char *topology_file_name, context *nodeContext)
         fprintf(stderr, "Error setting time in timer: %s.\n", strerror(errno));
 
     FD_SET(routing_update_timerFD, &nodeContext->FDList); //add the timer to master FD list and update fdmax
-    if (routing_update_timerFD > nodeContext->FDmax)
-        nodeContext->FDmax = routing_update_timerFD;
-
+    nodeContext->FDmax = routing_update_timerFD > nodeContext->FDmax?routing_update_timerFD:nodeContext->FDmax;
 
     while (1) //keep waiting for input and data
     {
@@ -744,18 +777,35 @@ int runServer(char *topology_file_name, context *nodeContext)
                     struct sockaddr_storage addr;
                     socklen_t fromlen = sizeof(addr);
                     int bytes_received = 0;
-                    do{
-                        bytes_received += recvfrom(nodeContext->mySockFD, (message +bytes_received),
+//                    do{
+//                        bytes_received += recvfrom(nodeContext->mySockFD, (message +bytes_received),
+//                                                   (messageLength - bytes_received), 0, &addr, &fromlen);
+//                        if(bytes_received == -1)
+//                        {
+//                            fprintf(stderr, "Error reading: %s.\n", strerror(errno));
+//                        }
+//                        else
+//                        {
+//                            //printf("Received %d bytes.\n", bytes_received);
+//                        }
+//                    }while(bytes_received != messageLength);
+
+                    bytes_received = recvfrom(nodeContext->mySockFD, (message +bytes_received),
                                                    (messageLength - bytes_received), 0, &addr, &fromlen);
-                        if(bytes_received == -1)
+                    if(bytes_received == -1)
+                    {
+                        fprintf(stderr, "Error reading: %s.\n", strerror(errno));
+                    }
+                    else
+                    {
+                        if(bytes_received < messageLength)
                         {
-                            fprintf(stderr, "Error reading: %s.\n", strerror(errno));
+                            printf("Message received it shorter than the expected size. So, ignoring message.\n"
+                                           "Received: %d, Expected: 8 + %d * 12 = %d\n", bytes_received,
+                                   getSize(nodeContext->routing_table), messageLength);
+                            continue;
                         }
-                        else
-                        {
-                            //printf("Received %d bytes.\n", bytes_received);
-                        }
-                    }while(bytes_received != messageLength);
+                    }
 
                     //read the num_fields_sent, source ip, port
                     int parsed_size = 0;
@@ -788,10 +838,39 @@ int runServer(char *topology_file_name, context *nodeContext)
                         continue;
                     }
 
-                    int sender_id = sender_row->id;
+                    uint16_t sender_id = sender_row->id;
 
                     printf("RECEIVED A MESSAGE FROM SERVER %u.\n", sender_id);
 
+                    //reset the routing update timer of the sender
+                    neighbour *sender;
+                    if((sender = findNeighbourByID(nodeContext->neighbourList, sender_id)) == NULL)
+                    {
+                        printf("SERVER %u is not a neighbour so ignoring message.", sender_id);
+                        continue;
+                    }
+                    else
+                    {
+                        struct itimerspec curr_time_value;
+                        if ((status = timerfd_gettime(sender->timeoutFD, &curr_time_value)) !=0)
+                        {
+                            fprintf(stderr, "Error getting routing update timer of neighbour: %s.\n", strerror(errno));
+                            continue;
+                        }
+                        else
+                        {
+                            //reset the remaining time to the interval
+                            curr_time_value.it_value.tv_sec = curr_time_value.it_interval.tv_sec;
+                            curr_time_value.it_value.tv_nsec = curr_time_value.it_interval.tv_nsec;
+                            if (timerfd_settime(sender->timeoutFD, 0, &curr_time_value, NULL) != 0)
+                            {
+                                fprintf(stderr, "Error reseting the neighbour's timer: %s.\n", strerror(errno));
+                                continue;
+                            }
+                        }
+                    }
+
+                    //update the distance matrix
                     if(read_num_of_update_fields != getSize(nodeContext->routing_table))
                     {
                         printf("Received a Routing update packet with more fields than the number of nodes"
@@ -816,7 +895,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                         }
                         else if (status ==  0)
                         {
-                            //no change in the distance vecto
+                            //no change in the distance vector
                         }
                         else
                         {
@@ -843,7 +922,14 @@ int runServer(char *topology_file_name, context *nodeContext)
 
                     if((status = sendRoutingUpdate(nodeContext))!=0)
                     {
-                        fprintf(stderr, "Error Sending routing update.\n");
+                        if(status == -3)
+                        {
+                            printf("Timeout: There are no neighbours to send routing update to.\n");
+                        }
+                        else
+                        {
+                            fprintf(stderr, "Error Sending routing update.\n");
+                        }
                     }
                     else{
                         printf("Timeout: Sent routing update to all neighbours.\n");
@@ -851,7 +937,49 @@ int runServer(char *topology_file_name, context *nodeContext)
                 }
                 else // handle other data
                 {
-                    printf("Received data on fd: %d but not sure from whom.\n", fd);
+                    //check if one of the neighbour timers has expired
+                    neighbour *expiredNeighbour;
+                    if((expiredNeighbour = findNeighbourByTimerFD(nodeContext->neighbourList, fd)) != NULL)
+                    {
+                        uint16_t expiredNodeId = expiredNeighbour->id;
+
+                        //read the timer
+                        uint64_t timers_expired;
+                        int bytes_read = read(expiredNeighbour->timeoutFD, &timers_expired, sizeof(uint64_t));
+                        if(bytes_read == -1)
+                        {
+                            fprintf(stderr, "Timer expired but error in reading: %s.\n", strerror(errno));
+                        }
+                        else{
+                            //printf("Timer expired: %lu.\n", timers_expired);
+                        }
+
+
+                        if((status = disableLinkToNode(nodeContext, expiredNodeId)) == 0)
+                        {
+                            printf("Did not receive Routing update from Server %u for three routing intervals. "
+                                           "So, removed it from the neighbour list.\n", expiredNodeId);
+                        }
+                        else if (status == -2){
+                            printf("Did not receive Routing update from Server %u for three routing intervals. "
+                                           "So, tried to remove it from the neighbour list, but failed.\n");
+                            fprintf(stderr, "Server_id is not a neighbour so there is no direct link to disable.\n");
+                        }
+                        else
+                        {
+                            printf("Did not receive Routing update from Server %u for three routing intervals. "
+                                           "So, tried to remove it from the neighbour list, but failed.\n");
+                            fprintf(stderr, "Neighbour link removed but routing table not updated.This is bad.\n");
+                        }
+                    }
+                    else
+                    {
+
+                        char buffer[100];
+                        int bytes_read = read(expiredNeighbour->timeoutFD, buffer, sizeof(uint64_t));
+                        printf("Received message: \"%s\" on fd: %d but not sure from whom.\n", buffer, fd);
+
+                    }
                 }
             }
         }

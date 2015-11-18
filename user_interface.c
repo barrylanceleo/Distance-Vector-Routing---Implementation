@@ -92,7 +92,18 @@ int handleCommand(context * nodeContext, char *command) {
     {
         if((status = sendRoutingUpdate(nodeContext))!=0)
         {
-            fprintf(stderr, "Error Sending routing update.\n");
+            if(status == -3)
+            {
+                printf("step SUCCESS There are no neighbours to send routing update to.\n");
+            }
+            else
+            {
+                fprintf(stderr, "step ERROR unable to send routing update.\n");
+            }
+        }
+        else
+        {
+            printf("step SUCCESS.\n");
         }
     }
     else if (commandLength == 4 && strcmp(commandParts[0], "update") == 0)
@@ -141,7 +152,7 @@ int handleCommand(context * nodeContext, char *command) {
     else if (commandLength == 2 && strcmp(commandParts[0], "disable") == 0)
     {
         uint16_t server_id;
-        if((server_id = atoi(commandParts[0])) <= 0)
+        if((server_id = atoi(commandParts[1])) <= 0)
         {
             printf("disable ERROR invalid server_id.\n");
         }
