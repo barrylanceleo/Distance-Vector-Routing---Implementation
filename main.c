@@ -15,16 +15,16 @@ int main(int argc, char **args)
     nodeContext.routing_update_interval = 0;
     nodeContext.myHostName = NULL;
     nodeContext.myIPAddress = NULL;
-    nodeContext.myPort = NULL;
-    nodeContext.myId = NULL;
-    nodeContext.myDVIndex = NULL;
-    nodeContext.mySockFD = NULL;
+    nodeContext.myPort = 0;
+    nodeContext.myId = 0;
+    nodeContext.myDVIndex = 0;
+    nodeContext.mySockFD = 0;
     nodeContext.routing_table = NULL;
     nodeContext.neighbourList = NULL;
     nodeContext.distance_matrix = NULL;
-    nodeContext.received_packet_counter = NULL;
+    nodeContext.received_packet_counter = 0;
     FD_ZERO(&nodeContext.FDList);
-    nodeContext.FDmax = NULL;
+    nodeContext.FDmax = 0;
 
     if(argc == 5)
     {

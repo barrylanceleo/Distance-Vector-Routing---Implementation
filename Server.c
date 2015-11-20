@@ -54,7 +54,6 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
     else
     {
         char* topologyline;
-
         //read the number of servers
         topologyline = readLine(&tf);
         if(topologyline!=NULL)
@@ -90,8 +89,7 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
             num_neighbors = atoi(topologyline);
             if(num_neighbors==0)
             {
-                fprintf(stderr,"Number of neighbours shouldn't be zero.\n");
-                return -2; //error in topology file
+                printf("Note: You have started this node with 0 neighbours.\n");
             }
             free(topologyline);
         }
@@ -99,13 +97,14 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
             return -2; //error in topology file
         }
 
-        //read the portnumber and id
-        topologyline = readLine(&tf);
-        int port = atoi(topologyline);
-        nodeContext->myPort = port;
-        topologyline = readLine(&tf);
-        int id = atoi(topologyline);
-        nodeContext->myId = id;
+        //changes to make all nodes run on a single machine
+//        //read the portnumber and id
+//        topologyline = readLine(&tf);
+//        int port = atoi(topologyline);
+//        nodeContext->myPort = port;
+//        topologyline = readLine(&tf);
+//        int id = atoi(topologyline);
+//        nodeContext->myId = id;
 
         //read the nodes' ips/ports and build add to the list
         for(i=0; i < num_nodes; i++)
@@ -130,13 +129,10 @@ int readTopologyFile(char *topology_file_name, context *nodeContext)
                 //find my own entry and handle it accordingly
                 if(strcmp(nodeContext->myIPAddress, ipAddress) == 0)
                 {
-
                     //changes to make all nodes run on a single machine
-//                    cost = 0;
-//                    //initialize the context variables
-//                    nodeContext->myId = id;
-//                    nodeContext->myPort = port;
-
+                    //initialize the context variables
+                    nodeContext->myId = id;
+                    nodeContext->myPort = port;
                 }
 
                 if(id == nodeContext->myId)
@@ -396,7 +392,7 @@ int buildRoutingPacket(context *nodeConText, char *routing_message, int *update_
 int readPacket(int fd, char *message, int messageLength)
 {
 
-    struct sockaddr_storage addr;
+    struct sockaddr addr;
     socklen_t fromlen = sizeof(addr);
     int bytes_received = 0;
     do{
@@ -421,7 +417,7 @@ int updateDistanceMatrix(context *nodeContext, int sender_id, char *message, int
     struct in_addr read_ip;
     uint16_t read_port, read_zero, read_id, read_cost;
     char readIP[INET_ADDRSTRLEN];
-    char *returned_ptr;
+    const char *returned_ptr;
     //get the sender's DVindex
     int senderDVIndex;
     if((senderDVIndex= getDVIndex(nodeContext->routing_table, sender_id)) == -1)
@@ -502,8 +498,12 @@ int updateRoutingTable(context *nodeContext)
             neighbour *currentNeighbour = (neighbour *) currentNeighbourItem->item;
 
             int neighbourDVIndex = getDVIndex(nodeContext->routing_table, currentNeighbour->id);
+            if(neighbourDVIndex == -1)
+            {
+                return -2;
+            }
 
-            int new_cost = currentNeighbour->cost + distance_matrix[neighbourDVIndex][desinationDVIndex];
+            int new_cost = (int) currentNeighbour->cost + distance_matrix[neighbourDVIndex][desinationDVIndex];
             if(new_cost < min_cost)
             {
                 min_cost = new_cost;
@@ -564,6 +564,11 @@ int updateLinkCost(context *nodeContext, uint16_t destination_id, uint16_t new_c
     neighbour *neighbourNode;
     if((neighbourNode = findNeighbourByID(nodeContext->neighbourList, destination_id))==NULL)
     {
+
+        if((findRowByID(nodeContext->routing_table, destination_id)) == NULL)
+        {
+            return -2;
+        }
         printf("%d is not a neighbour of %d. So, adding it as a neighbour and updating the cost.\n"
                        "p.s. this will be a one-directional link from %d to %d, to make make it bi-directional "
                        "you need to add the same link on server %d\n",
@@ -675,6 +680,7 @@ int runServer(char *topology_file_name, context *nodeContext)
     nodeContext->myHostName = (char *) malloc(sizeof(char) * HOST_NAME_SIZE);
     gethostname(nodeContext->myHostName, HOST_NAME_SIZE);
     nodeContext->myIPAddress = getIpfromHostname(nodeContext->myHostName);
+    printf("%s", nodeContext->myIPAddress);
     if(nodeContext->myIPAddress == NULL)
     {
         nodeContext->myIPAddress = "invalid";
@@ -782,7 +788,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                     //read the packet
                     int messageLength = 8 + getSize(nodeContext->routing_table)*12;
                     char message[messageLength];
-                    struct sockaddr_storage addr;
+                    struct sockaddr addr;
                     socklen_t fromlen = sizeof(addr);
                     int bytes_received = 0;
 //                    do{
@@ -828,7 +834,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                     read_num_of_update_fields = ntohs(read_num_of_update_fields);
                     read_port = ntohs(read_port);
                     char IPAddress[INET_ADDRSTRLEN];
-                    char *returned_ptr = inet_ntop(AF_INET, &read_ip, IPAddress, sizeof(IPAddress));
+                    const char *returned_ptr = inet_ntop(AF_INET, &read_ip, IPAddress, sizeof(IPAddress));
                     if(returned_ptr == NULL)
                     {
                     fprintf(stderr," unable to to get back the ipaddress");
@@ -841,8 +847,8 @@ int runServer(char *topology_file_name, context *nodeContext)
                     if((sender_row = findRowByIPandPort(nodeContext->routing_table,
                                          IPAddress, read_port)) == NULL)
                     {
-                        printf("Received a Routing update packet from a node not"
-                                       " present in this node's topology file. So, ignoring the packet.");
+                        printf("Received a Routing update packet from a %s/%u but it does not"
+                                       " belong to this network. So, ignoring the packet.", IPAddress, read_port);
                         continue;
                     }
 
@@ -854,7 +860,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                     neighbour *sender;
                     if((sender = findNeighbourByID(nodeContext->neighbourList, sender_id)) == NULL)
                     {
-                        printf("SERVER %u is not a neighbour so ignoring message.", sender_id);
+                        printf("SERVER %u is not a neighbour so ignoring message.\n", sender_id);
                         continue;
                     }
                     else
@@ -911,7 +917,7 @@ int runServer(char *topology_file_name, context *nodeContext)
                         }
 
                         //printDistanceMatrix(nodeContext);
-                        displayRoutingTable(nodeContext);
+                        //displayRoutingTable(nodeContext);
                     }
 
                 }

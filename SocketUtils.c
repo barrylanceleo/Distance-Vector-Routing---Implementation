@@ -33,13 +33,13 @@ char *getHostnameFromIp(char *ipAddress) {
 }
 
 char *getIpfromHostname(char *hostName) {
-    struct addrinfo *sockAddress = getAddressInfo(hostName, NULL);
+    struct addrinfo *sockAddress = getAddressInfo(hostName, 0);
     if (sockAddress == NULL)
         return NULL;
 
     char IPAddress[INET_ADDRSTRLEN];
     struct sockaddr_in *address = (struct sockaddr_in *)sockAddress->ai_addr;
-    char *returned_ptr = inet_ntop(address->sin_family, &(address->sin_addr), IPAddress, sizeof(IPAddress));
+    const char *returned_ptr = inet_ntop(address->sin_family, &(address->sin_addr), IPAddress, sizeof(IPAddress));
     if(returned_ptr == NULL)
     {
         return NULL;

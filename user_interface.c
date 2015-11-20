@@ -20,7 +20,7 @@ int displayRoutingTable(context *nodeContext)
         do {
             //for each routing_table_row
             routing_table_row *currentRow = (routing_table_row *) currentItem->item;
-            if(currentRow->cost != INFINITY)
+            if(currentRow->cost != INFINITY && currentRow->cost != 0)
             {
                 printf("%10u %10u %10u\n", currentRow->id,
                        currentRow->next_hop_id, currentRow->cost);
@@ -83,8 +83,6 @@ int handleCommand(context * nodeContext, char *command) {
         }
     }
 
-    //printf("commandLength: %d\n", commandLength);
-
     //create the commandParts array and update it
     char *commandParts[commandLength];
     i = 0;
@@ -99,18 +97,18 @@ int handleCommand(context * nodeContext, char *command) {
     }
 
     int status;
-//    //print the commands
-//    for(i = 0; i<commandLength; i++)
-//    {
-//        printf("-%s-\n", commandParts[i]);
-//    }
 
-    if(commandLength == 1 && strcmp(commandParts[0], "display") == 0)
+    if(commandLength == 1 && strcasecmp(commandParts[0], "help") == 0)
+    {
+        printf("List of commands:\n"
+                       "1.help\n2.display\n3.step\n4.update\n5.packets\n6.disable\n6.crash\n");
+    }
+    else if(commandLength == 1 && strcasecmp(commandParts[0], "display") == 0)
     {
         printf("Routing Table:\n");
         displayRoutingTable(nodeContext);
     }
-    else if (commandLength == 1 && strcmp(commandParts[0], "step") == 0)
+    else if (commandLength == 1 && strcasecmp(commandParts[0], "step") == 0)
     {
         if((status = sendRoutingUpdate(nodeContext))!=0)
         {
@@ -128,12 +126,12 @@ int handleCommand(context * nodeContext, char *command) {
             printf("step SUCCESS.\n");
         }
     }
-    else if (commandLength == 4 && strcmp(commandParts[0], "update") == 0)
+    else if (commandLength == 4 && strcasecmp(commandParts[0], "update") == 0)
     {
         uint16_t new_cost;
         uint16_t source_id = atoi(commandParts[1]);
         uint16_t destination_id = atoi(commandParts[2]);
-        if(strcmp(commandParts[3], "inf") == 0)
+        if(strcasecmp(commandParts[3], "inf") == 0)
         {
             new_cost = INFINITY;
         }
@@ -142,9 +140,9 @@ int handleCommand(context * nodeContext, char *command) {
             new_cost = atoi(commandParts[3]);
         }
 
-        if(new_cost < 0 || new_cost >= INFINITY)
+        if(new_cost <= 0 || new_cost > INFINITY)
         {
-            printf("update ERROR: The link cost needs to between 0 and %d.\n"
+            printf("update ERROR: The link cost needs to between 1 and %d.\n"
                            "This is limited by the 2 byte cost variable size.\n", INFINITY-1);
             return -1;
         }
@@ -164,20 +162,27 @@ int handleCommand(context * nodeContext, char *command) {
         }
         if((status = updateLinkCost(nodeContext, destination_id, new_cost))!=0)
         {
-            printf("update ERROR: Unable to modify the Link Cost.\n");
+            if(status == -2)
+            {
+                printf("update ERROR: Given destination server_id doesn't belong to the network.\n");
+            }
+            else
+            {
+                printf("update ERROR\n");
+            }
             return -1;
         }
         else
         {
-            printf("update SUCCESS\n");
+            printf("update SUCCESS. Updated %u -- %u with cost %u.\n", source_id, destination_id, new_cost);
         }
     }
-    else if (commandLength == 1 && strcmp(commandParts[0], "packets") == 0)
+    else if (commandLength == 1 && strcasecmp(commandParts[0], "packets") == 0)
     {
         printf("packets SUCCESS %d.\n", nodeContext->received_packet_counter);
         nodeContext->received_packet_counter = 0;
     }
-    else if (commandLength == 2 && strcmp(commandParts[0], "disable") == 0)
+    else if (commandLength == 2 && strcasecmp(commandParts[0], "disable") == 0)
     {
         uint16_t server_id;
         if((server_id = atoi(commandParts[1])) <= 0)
@@ -199,10 +204,19 @@ int handleCommand(context * nodeContext, char *command) {
             }
         }
     }
-    else if (commandLength == 1 && strcmp(commandParts[0], "crash") == 0)
+    else if (commandLength == 1 && strcasecmp(commandParts[0], "crash") == 0)
     {
         simulateNodeCrash(nodeContext);
         printf("crash SUCCESS this node will not send/receive routing updates further.\n");
+    }
+    else
+    {
+        if(commandParts[0][0] = 0)
+        {
+            //do nothing;
+        }
+
+        printf("Unsupported Command. Enter \"help\" to the list of supported commands.\n");
     }
     return 0;
 }
