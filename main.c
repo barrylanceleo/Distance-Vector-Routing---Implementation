@@ -39,7 +39,7 @@ int main(int argc, char **args)
         }
 
         int status ;
-        if((runServer(topology_file_name, &nodeContext) !=0))
+        if(status = (runServer(topology_file_name, &nodeContext) !=0))
         {
             if(status == -1)
             {

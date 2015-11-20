@@ -680,7 +680,7 @@ int runServer(char *topology_file_name, context *nodeContext)
     nodeContext->myHostName = (char *) malloc(sizeof(char) * HOST_NAME_SIZE);
     gethostname(nodeContext->myHostName, HOST_NAME_SIZE);
     nodeContext->myIPAddress = getIpfromHostname(nodeContext->myHostName);
-    printf("%s", nodeContext->myIPAddress);
+    //printf("%s", nodeContext->myIPAddress);
     if(nodeContext->myIPAddress == NULL)
     {
         nodeContext->myIPAddress = "invalid";
@@ -711,8 +711,8 @@ int runServer(char *topology_file_name, context *nodeContext)
 
     //printDistanceMatrix(nodeContext);
 
-    printf("My Info:\nID:%d Hostname:%s IP:%s Port:%d\n", nodeContext->myId, nodeContext->myHostName,
-           nodeContext->myIPAddress, nodeContext->myPort);
+    //printf("My Info:\nID:%d Hostname:%s IP:%s Port:%d\n", nodeContext->myId, nodeContext->myHostName,
+    //      nodeContext->myIPAddress, nodeContext->myPort);
     //printList(nodeContext->routing_table, "routing_table_row");
     //printList(nodeContext->neighbourList, "neighbour");
     nodeContext->mySockFD = startServer(nodeContext->myPort);
@@ -720,6 +720,9 @@ int runServer(char *topology_file_name, context *nodeContext)
     {
         //fprintf(stderr, "Error in creating socket.\n");
         return -3;
+    }
+    else{
+        printf("Router started...\n");
     }
 
     fd_set tempFDList; //temp file descriptor list to hold all sockets and stdin
